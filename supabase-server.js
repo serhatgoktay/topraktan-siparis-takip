@@ -1,5 +1,7 @@
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
+import { createExcelReport, reportFilters } from './reports.js';
+import { calendarDate } from './public/dates.js';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
 
 const unitNames = ['Bahçe', 'Küçükpark', 'Evka3', 'İmalat'];
@@ -9,6 +11,7 @@ const files = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/catalog.js': ['catalog.js', 'text/javascript; charset=utf-8'],
+  '/dates.js': ['dates.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
   '/logo.png': ['logo.png', 'image/png'],
   '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
@@ -108,6 +111,13 @@ export function createApp({
     }
     throw error('Kayıt sayısı tek rapor sınırını aştı. Sunucuda sayfalama gereklidir.', 413);
   }
+  async function ordersFor(token) {
+        const rows = await all('/rest/v1/orders?select=*,items:order_items(*),events:order_events(*)&order=id.desc', token);
+        return rows.map(o => ({ ...o, unit: unitNames[o.unit_id - 1], creator: o.creator_name,
+          items: (o.items || []).map(i => ({ ...i, quantity: Number(i.quantity) })).sort((a, b) => a.id - b.id),
+          events: (o.events || []).map(e => ({ ...e, actor: e.actor_name })).sort((a, b) => a.id - b.id),
+        }));
+  }
   function cookies(res, session) {
     const suffix = `; HttpOnly; SameSite=Strict; Path=/${secureCookies ? '; Secure' : ''}`;
     const accessAge = session ? Math.min(Number(session.expires_in) || 3600, 43200) : 0;
@@ -152,7 +162,8 @@ export function createApp({
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'same-origin');
     try {
-      const path = new URL(req.url, 'http://localhost').pathname;
+      const requestURL = new URL(req.url, 'http://localhost');
+      const path = requestURL.pathname;
       if (!path.startsWith('/api/')) {
         const file = files[path];
         if (!file || !['GET', 'HEAD'].includes(req.method)) return send({ error: 'Bulunamadı.' }, 404);
@@ -216,19 +227,26 @@ export function createApp({
       }
       const { token, user } = await authenticate(req, res);
       if (path === '/api/me' && req.method === 'GET') return send(user);
+      if (path === '/api/reports/export' && req.method === 'GET') {
+        const filter = reportFilters(requestURL.searchParams);
+        const branchUnits = ['admin','manager'].includes(user.role) || user.unit === 'İmalat' ? unitNames.slice(0,3) : [user.unit];
+        const output = await createExcelReport(await ordersFor(token), filter, { userName: user.name, branchUnits });
+        res.writeHead(200, {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="topraktan-rapor-${calendarDate(new Date())}.xlsx"`,
+          'Cache-Control': 'no-store',
+        });
+        res.end(output);
+        return;
+      }
+
       if (path === '/api/products' && req.method === 'GET') return send(await all('/rest/v1/products?select=*&order=id.asc', token));
       if (path === '/api/products' && req.method === 'POST') {
         if (!['admin', 'manager'].includes(user.role)) throw error('Ürün düzenleme yetkiniz yok.', 403);
         await remote('/rest/v1/rpc/save_product_v2', { token, body: { p_name: body.name, p_measure: body.measure, p_category: body.category || null, p_subcategory: body.subcategory || null, p_id: body.id || null, p_active: body.active !== false } });
         return send({ ok: true });
       }
-      if (path === '/api/orders' && req.method === 'GET') {
-        const rows = await all('/rest/v1/orders?select=*,items:order_items(*),events:order_events(*)&order=id.desc', token);
-        return send(rows.map(o => ({ ...o, unit: unitNames[o.unit_id - 1], creator: o.creator_name,
-          items: (o.items || []).map(i => ({ ...i, quantity: Number(i.quantity) })).sort((a, b) => a.id - b.id),
-          events: (o.events || []).map(e => ({ ...e, actor: e.actor_name })).sort((a, b) => a.id - b.id),
-        })));
-      }
+      if (path === '/api/orders' && req.method === 'GET') return send(await ordersFor(token));
       if (path === '/api/orders' && req.method === 'POST') {
         const id = await remote('/rest/v1/rpc/create_order_v2', { token, body: {
           p_unit_id: ['admin', 'manager'].includes(user.role) ? unitNames.indexOf(body.unit) + 1 : user.unit_id,

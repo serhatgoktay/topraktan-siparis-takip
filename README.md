@@ -99,3 +99,9 @@ Canlı projede yalnızca `supabase/migrations/202610210003_usernames.sql` dosyas
 Kullanıcı adları 3–32 karakterdir; a-z, 0-9, nokta, tire ve alt çizgi kabul edilir. Büyük/küçük harf farkı yoktur; kullanıcı adları küçük harfe çevrilir ve tekil indeksle korunur. Aktif bir profilde kullanıcı adı bulunması zorunludur. Bilinmeyen, pasif veya şifresi yanlış hesaplar girişte aynı hata yanıtını verir. Kullanıcı adı eşlemesi/e-posta döndüren RPC yalnız `service_role` tarafından çağrılabilir; sipariş/RLS çağrıları yine kullanıcı JWT'siyle yapılır. Kullanıcı adı değişikliği mevcut oturum kimliğini veya şifreyi değiştirmez.
 
 Bu yeni migration canlıda henüz doğrulanmamıştır; SQL ve Auth protokolü yerel testlerde doğrulanmıştır. Migration eksikken giriş e-postaya geri dönmez; açıklayıcı 503 kurulum hatası verir.
+
+## Sipariş tarihi
+
+Siparişin oluşturulduğu `created_at` zamanı sipariş tarihi olarak listelerde (genel bakış, siparişler ve geçmiş), ayrıntılarda ve CSV'de gösterilir. Teslim tarihi ayrı tutulur. Geçmiş/rapor tarih aralığında **Tarih alanı** seçilerek sipariş veya teslim tarihine göre filtrelenebilir; varsayılan teslim tarihidir. Oluşturma zamanı Türkiye saatine göre takvim gününe çevrilir; gece yarısı UTC farkı rapor gününü kaydırmaz. Sipariş tarihi otomatik kayıttır ve elle değiştirilmez. Yeni SQL migration'ı gerekmez; mevcut kayıtların oluşturma zamanı kullanılır.
+
+Excel raporu **Raporlar → Excel indir** üzerinden gerçek `.xlsx` dosyası olarak indirilir. Siparişler, Ürün toplamları, Şube özeti ve Rapor bilgisi sayfalarını içerir. Ekrandaki tarih alanı, tarih aralığı, şube, durum ve arama filtreleri uygulanır. Sunucu kullanıcı oturumuyla RLS üzerinden okur; şube operatörü başka şubenin verisini indiremez. Tarihler Excel tarih hücresi, miktarlar sayısal hücre olarak yazılır; ürün metinleri formül olarak çalıştırılmaz. Dosya başına 20.000 sipariş kalemi sınırında daha dar tarih aralığı istenir. Dosya üretimi için sunucuda ExcelJS kullanılır.
