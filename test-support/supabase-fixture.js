@@ -2,14 +2,15 @@
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-export async function fixture({catalogMigration=true}={}) {
+export async function fixture({catalogMigration=true,usernameMigration=true}={}) {
  const db = new PGlite();
- await db.exec(`create role anon; create role authenticated; create schema auth;
+ await db.exec(`create role anon; create role authenticated; create role service_role; create schema auth;
  create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb not null default '{}');
  create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
  grant usage on schema auth to authenticated; grant execute on function auth.uid() to authenticated;`);
  await db.exec(readFileSync(new URL('../supabase/migrations/202610210001_initial.sql',import.meta.url),'utf8'));
  if(catalogMigration)await db.exec(readFileSync(new URL('../supabase/migrations/202610210002_catalog_servings.sql',import.meta.url),'utf8'));
+ if(usernameMigration)await db.exec(readFileSync(new URL('../supabase/migrations/202610210003_usernames.sql',import.meta.url),'utf8'));
  let queue = Promise.resolve();
  function sql(id,query,params=[]) {
   const op=queue.then(async()=>{
@@ -19,14 +20,15 @@ export async function fixture({catalogMigration=true}={}) {
   });queue=op.catch(()=>{});return op;
  }
  const accounts=new Map(), access=new Map(), refresh=new Map(), calls=[];
- async function add(email,password,name,role='operator',unit_id=null,active=false) {
+ async function add(email,password,name,role='operator',unit_id=null,active=false,username=null) {
   if([...accounts.values()].some(a=>a.email===email))throw Object.assign(Error('User already registered'),{code:'email_exists'});
   const id=randomUUID();await sql(null,'insert into auth.users(id,email,raw_user_meta_data) values($1,$2,$3)',[id,email,JSON.stringify({name})]);
   const account={id,email,password};accounts.set(id,account);
-  await sql(null,'update public.profiles set name=$2,role=$3,unit_id=$4,active=$5 where id=$1',[id,name,role,unit_id,active]);return account;
+  if(usernameMigration)await sql(null,'update public.profiles set name=$2,role=$3,unit_id=$4,active=$5,username=$6 where id=$1',[id,name,role,unit_id,active,username]);
+  else await sql(null,'update public.profiles set name=$2,role=$3,unit_id=$4,active=$5 where id=$1',[id,name,role,unit_id,active]);return account;
  }
- for(const [name,role,unit_id] of [['admin','admin',null],['manager','manager',null],['bahce','operator',1],['park','operator',2],['imalat','operator',4]])await add(name+'@example.test','fixture-password-123',name,role,unit_id,true);
- const disabled=await add('disabled@example.test','fixture-password-123','Pasif');
+ for(const [name,role,unit_id] of [['admin','admin',null],['manager','manager',null],['bahce','operator',1],['park','operator',2],['imalat','operator',4]])await add(name+'@example.test','fixture-password-123',name,role,unit_id,true,name);
+ const disabled=await add('disabled@example.test','fixture-password-123','Pasif','operator',null,false,'disabled');
  function session(account){const token='access-'+randomUUID(),rt='refresh-'+randomUUID();access.set(token,account.id);refresh.set(rt,account.id);return {access_token:token,refresh_token:rt,expires_in:3600,user:{id:account.id,email:account.email}};}
  const json=(data,status=200)=>new Response(data===null?'':JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}});
  async function fetchImpl(input,options={}) {
@@ -48,20 +50,26 @@ export async function fixture({catalogMigration=true}={}) {
     if(method==='POST')return json(await add(body.email,body.password,body.user_metadata.name));
     const account=accounts.get(u.pathname.split('/').at(-1));if(!account)return json({message:'Missing account'},404);account.password=body.password;return json(account);
    }
+   if(u.pathname==='/rest/v1/rpc/resolve_login_username'){
+    if(headers.apikey!=='fixture-service-key')return json({code:'42501',message:'Not allowed'},403);
+    if(!usernameMigration)return json({code:'PGRST202',message:'Missing function'},404);
+    const r=await sql(null,'select public.resolve_login_username($1) as email',[body.p_username]);return json(r.rows[0].email);
+   }
    if(!id)return json({message:'Missing JWT'},401);
    const name=u.pathname.split('/').at(-1);
    if(u.pathname.startsWith('/rest/v1/rpc/')){
-    const spec={save_product_v2:['p_name','p_measure','p_category','p_subcategory','p_id','p_active'],create_order_v2:['p_unit_id','p_delivery','p_items','p_note'],save_product:['p_name','p_measure','p_id','p_active'],create_order:['p_unit_id','p_delivery','p_items','p_note'],change_order_status:['p_order_id','p_status','p_note'],admin_set_profile:['p_user_id','p_name','p_role','p_unit_id','p_active']}[name];
+    const spec={admin_set_profile_v2:['p_user_id','p_name','p_role','p_unit_id','p_active','p_username'],save_product_v2:['p_name','p_measure','p_category','p_subcategory','p_id','p_active'],create_order_v2:['p_unit_id','p_delivery','p_items','p_note'],save_product:['p_name','p_measure','p_id','p_active'],create_order:['p_unit_id','p_delivery','p_items','p_note'],change_order_status:['p_order_id','p_status','p_note'],admin_set_profile:['p_user_id','p_name','p_role','p_unit_id','p_active']}[name];
     if(!spec)return json({code:'PGRST202',message:'Missing function'},404);
     const params=spec.map(k=>k==='p_items'?JSON.stringify(body[k]):body[k]);
-    const casts={create_order_v2:['smallint','date','jsonb','text'],save_product_v2:['text','text','text','text','bigint','boolean'],create_order:['smallint','date','jsonb','text'],save_product:['text','text','bigint','boolean'],change_order_status:['bigint','text','text'],admin_set_profile:['uuid','text','text','smallint','boolean']}[name];
+    const casts={admin_set_profile_v2:['uuid','text','text','smallint','boolean','text'],create_order_v2:['smallint','date','jsonb','text'],save_product_v2:['text','text','text','text','bigint','boolean'],create_order:['smallint','date','jsonb','text'],save_product:['text','text','bigint','boolean'],change_order_status:['bigint','text','text'],admin_set_profile:['uuid','text','text','smallint','boolean']}[name];
     const r=await sql(id,`select public.${name}(${casts.map((c,i)=>'$'+(i+1)+'::'+c).join(',')}) as result`,params);
     return json(r.rows[0].result);
    }
    let query,params=[];
    if(name==='profiles'){
     const target=u.searchParams.get('id')?.replace('eq.','');
-    query='select * from public.profiles'+(target?' where id=$1':'')+' order by id';if(target)params=[target];
+    const username=u.searchParams.get('username')?.replace('eq.','');
+    query='select * from public.profiles'+(target?' where id=$1':username?' where username=$1':'')+' order by id';if(target)params=[target];else if(username)params=[username];
    }else if(name==='products')query='select * from public.products order by id';
    else if(name==='orders')query=`select o.*,
     coalesce((select json_agg(i order by i.id) from public.order_items i where i.order_id=o.id),'[]') as items,

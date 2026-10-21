@@ -25,9 +25,12 @@ function parseCookies(header = '') {
   return result;
 }
 function publicProfile(profile, email = '') {
-  return { ...profile, username: email, email, unit: unitNames[profile.unit_id - 1] || null };
+  return { ...profile, username: profile.username || '', email, unit: unitNames[profile.unit_id - 1] || null };
 }
 function validateUser(body) {
+  if (typeof body.username !== 'string' || !/^[a-z0-9][a-z0-9._-]{2,31}$/.test(body.username)) {
+    throw error('Kullanıcı adı 3–32 karakter olmalı; a-z, 0-9, nokta, tire ve alt çizgi kullanılabilir.');
+  }
   if (typeof body.name !== 'string' || !body.name.trim() || body.name.length > 120 ||
       !roles.includes(body.role) || typeof body.active !== 'boolean' ||
       body.role === 'operator' && !unitNames.includes(body.unit)) {
@@ -55,7 +58,7 @@ export function createApp({
   if (new URL(base).protocol !== 'https:') throw error('Supabase bağlantısı HTTPS kullanmalı.');
   const attempts = new Map();
   async function remote(path, { token, body, method = body === undefined ? 'GET' : 'POST', privileged = false } = {}) {
-    if (privileged && !serviceKey) throw error('Kullanıcı oluşturma ve şifre yenileme için sunucu ayarlarında SUPABASE_SERVICE_ROLE_KEY tanımlanmalı.', 503);
+    if (privileged && !serviceKey) throw error('Kullanıcı adıyla giriş ve hesap yönetimi için sunucu ayarlarında SUPABASE_SERVICE_ROLE_KEY tanımlanmalı.', 503);
     let response;
     try {
       response = await fetchImpl(base + path, {
@@ -78,11 +81,14 @@ export function createApp({
     catch { throw error('Supabase beklenmeyen bir yanıt verdi.', 502); }
     if (!response.ok) {
       const message = data?.message || data?.msg || data?.error_description || 'İşlem tamamlanamadı.';
+      if (privileged && [401, 403].includes(response.status)) throw error('Sunucunun kullanıcı hesabı bağlantısı doğrulanamadı. Yönetici sunucu ayarlarını kontrol etmeli.', 503);
       if (data?.code === '42501' || response.status === 403) throw error('Bu işlem için yetkiniz yok.', 403);
       if (response.status === 401) throw error('Oturum sona erdi. Yeniden giriş yapın.', 401);
-      if (data?.error_code === 'invalid_credentials' || /invalid login credentials/i.test(message)) throw error('E-posta veya şifre hatalı.', 401);
+      if (data?.error_code === 'invalid_credentials' || /invalid login credentials/i.test(message)) throw error('Kullanıcı adı veya şifre hatalı.', 401);
       if (/email not confirmed/i.test(message)) throw error('E-posta adresi henüz doğrulanmamış.', 401);
       if (response.status === 429) throw error('Çok fazla deneme yapıldı. Lütfen daha sonra tekrar deneyin.', 429);
+      if (data?.code === 'PGRST202' && (path.includes('resolve_login_username') || path.includes('admin_set_profile_v2'))) throw error('Kullanıcı adı güncellemesi eksik. Supabase kullanıcı adı SQL güncellemesini çalıştırın.', 503);
+      if (data?.code === '42703') throw error('Veritabanı güncellemesi eksik. Supabase SQL güncellemelerini kontrol edin.', 503);
       if (data?.code === 'PGRST202') throw error('Supabase kategori güncellemesi eksik. Kategori güncelleme SQL dosyasını çalıştırın.', 503);
       if (data?.code === '23505') throw error('Bu kayıt zaten mevcut.');
       if (data?.code?.startsWith('23')) throw error('Kayıt bilgileri geçersiz. Ürün, birim ve miktarı kontrol edin.');
@@ -174,17 +180,26 @@ export function createApp({
       }
       if (path === '/api/config' && req.method === 'GET') return send({ backend: 'supabase', userProvisioning: Boolean(serviceKey) });
       if (path === '/api/login' && req.method === 'POST') {
-        const email = String(body.username || body.email || '').trim();
-        if (!email || typeof body.password !== 'string' || body.password.length > 128) throw error('E-posta ve şifre gerekli.');
+        const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+        if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username) || typeof body.password !== 'string' || !body.password || body.password.length > 128) throw error('Kullanıcı adı veya şifre hatalı.', 401);
         const now = Date.now();
         for (const [key, entry] of attempts) if (now - entry.time > 600000) attempts.delete(key);
-        // Email-based limit is shared by requests to this process; Supabase also applies Auth rate limits.
-        const key = email.toLowerCase();
+        // Username-based limit is shared by requests to this process; Supabase also applies Auth rate limits.
+        const key = username;
         const attempt = attempts.get(key) || { count: 0, time: now };
         if (attempt.count >= 20) throw error('Çok fazla deneme. 10 dakika sonra tekrar deneyin.', 429);
         let session;
-        try { session = await remote('/auth/v1/token?grant_type=password', { body: { email, password: body.password } }); }
-        catch (e) { if (e.status === 401 || e.status === 400) { attempt.count++; if (attempts.size < 10000 || attempts.has(key)) attempts.set(key, attempt); } throw e; }
+        try {
+          const email = await remote('/rest/v1/rpc/resolve_login_username', { privileged: true, body: { p_username: username } });
+          if (typeof email !== 'string' || !email) throw error('Kullanıcı adı veya şifre hatalı.', 401);
+          session = await remote('/auth/v1/token?grant_type=password', { body: { email, password: body.password } });
+        } catch (e) {
+          if (e.status === 401 || e.status === 400) {
+            attempt.count++; if (attempts.size < 10000 || attempts.has(key)) attempts.set(key, attempt);
+            throw error('Kullanıcı adı veya şifre hatalı.', 401);
+          }
+          throw e;
+        }
         const user = await profileFor(session.access_token);
         attempts.delete(key);
         cookies(res, session);
@@ -232,9 +247,12 @@ export function createApp({
           const profiles = await all('/rest/v1/profiles?select=*&order=id.asc', token);
           return send(profiles.map(p => publicProfile(p, p.id === user.id ? user.email : '')));
         }
+        body.username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
         validateUser(body);
         if (body.id === user.id && (body.role !== 'admin' || !body.active)) throw error('Kendi yönetici yetkinizi kaldıramazsınız.');
-        if ((!body.id || body.password) && !serviceKey) throw error('Kullanıcı oluşturma ve şifre yenileme için sunucu ayarlarında SUPABASE_SERVICE_ROLE_KEY tanımlanmalı.', 503);
+        if ((!body.id || body.password) && !serviceKey) throw error('Kullanıcı adıyla giriş ve hesap yönetimi için sunucu ayarlarında SUPABASE_SERVICE_ROLE_KEY tanımlanmalı.', 503);
+        const matches = await remote(`/rest/v1/profiles?select=id&username=eq.${encodeURIComponent(body.username)}`, { token });
+        if (matches.some(p => p.id !== body.id)) throw error('Bu kullanıcı adı zaten kullanılıyor.', 409);
         let id = body.id;
         if (!id) {
           const authUser = await remote('/auth/v1/admin/users', { privileged: true, body: { email: body.email.trim(), password: body.password, email_confirm: true, user_metadata: { name: body.name.trim() } } });
@@ -242,7 +260,7 @@ export function createApp({
           if (!id) throw error('Kullanıcı oluşturma yanıtı geçersiz.', 502);
         }
         try {
-          await remote('/rest/v1/rpc/admin_set_profile', { token, body: { p_user_id: id, p_name: body.name, p_role: body.role, p_unit_id: body.role === 'operator' ? unitNames.indexOf(body.unit) + 1 : null, p_active: body.active } });
+          await remote('/rest/v1/rpc/admin_set_profile_v2', { token, body: { p_user_id: id, p_name: body.name, p_username: body.username, p_role: body.role, p_unit_id: body.role === 'operator' ? unitNames.indexOf(body.unit) + 1 : null, p_active: body.active } });
         } catch (e) {
           if (!body.id) throw error('Giriş hesabı oluşturuldu, fakat rol atanamadı. Kullanıcı listesini yenileyip hesabın yetkilerini düzenleyin. Hesap başlangıçta pasiftir.', 409);
           throw e;

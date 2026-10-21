@@ -5,7 +5,7 @@ Bahçe, Küçükpark ve Evka3 şubelerinden İmalat'a sipariş, onay ve üretim 
 ## Güncel mimari
 
 - Node.js 24 sunucusu (`supabase-server.js`) ve aynı kaynaktan sunulan HTML/CSS/JavaScript ekranları.
-- Supabase Auth ile **e-posta + şifre** girişi. Yönetici de Supabase'de oluşturulan e-postasıyla giriş yapar; eski SQLite `admin` hesabı kullanılmaz.
+- **Kullanıcı adı + şifre** girişi. İlk yönetici hesabının adı kullanıcı adı migration'ı sonrasında `hakan` olur; mevcut şifre korunur. Supabase Auth içeride aynı hesap/e-posta kimliğini kullanır, ancak uygulama girişinde e-posta kabul edilmez.
 - PostgreSQL ve RLS: şube izolasyonu, onay, ürün düzenleme, özel siparişler ve işlem geçmişi veritabanında korunur.
 - Oturum erişim/yenileme belirteçleri HttpOnly/SameSite=Strict çerezlerinde tutulur; tarayıcı JavaScript'ine veya localStorage'a verilmez. Sunucu her istekte Supabase Auth kimliğini ve aktif profili doğrular. Yetkili tablo/RPC isteklerinde **kullanıcının JWT'si** kullanılır.
 - Yönetici anahtarı yalnızca Supabase Auth Admin API'de kullanıcı oluşturma ve şifre yenileme için kullanılır; siparişlerin RLS kurallarını atlamak için kullanılmaz.
@@ -24,15 +24,15 @@ Proje URL'si ve kullanıcı tarafından sağlanan Publishable key `config.js` i�
 
 ### Kullanıcı yönetiminin tamamlanması
 
-Sunucunun **güvenli ortam değişkenlerine** `SUPABASE_SERVICE_ROLE_KEY` ekleyin. Bu alan için Supabase Settings → API Keys → Legacy API Keys altındaki **service_role JWT** kullanılır. `sb_publishable_...` yeterli değildir; `sb_secret_...` bu adaptörün legacy Authorization başlığı için kullanılmamalıdır. Değeri sohbete, Git'e veya ön yüz koduna koymayın; `VITE_`/`NEXT_PUBLIC_` gibi genel değişken adları kullanmayın.
+Kullanıcı adıyla giriş ve hesap yönetimi için sunucunun **güvenli ortam değişkenlerine** `SUPABASE_SERVICE_ROLE_KEY` ekleyin. Bu alan için Supabase Settings → API Keys → Legacy API Keys altındaki **service_role JWT** kullanılır. `sb_publishable_...` yeterli değildir; `sb_secret_...` bu adaptörün legacy Authorization başlığı için kullanılmamalıdır. Değeri sohbete, Git'e veya ön yüz koduna koymayın; `VITE_`/`NEXT_PUBLIC_` gibi genel değişken adları kullanmayın.
 
-Bu değişken olmadan giriş, ürünler, siparişler, geçmiş, raporlar ve mevcut profillerin rol/birim/aktiflik yönetimi kullanılabilir. **Yeni kullanıcı oluşturma ve şifre yenileme** açık bir kurulum mesajıyla engellenir. Sayfa üzerinden yeni kayıt için e-posta ve en az 12 karakterli şifre girilir. Kullanıcılar Supabase Auth'da oluşturulur; başlangıçtaki pasif profil yalnızca yöneticinin RPC çağrısıyla etkinleştirilir. Auth hesabı oluşturulup profil güncellemesi başarısız olursa hesap pasif kalır ve kullanıcıya kısmi işlem açıklanır; tekrar hesap oluşturmadan mevcut profil düzenlenmelidir.
+Bu değişken olmadan **kullanıcı adıyla yeni giriş**, kullanıcı oluşturma ve şifre yenileme açık bir kurulum mesajıyla engellenir. Daha önce açılmış geçerli oturumlarda veri işlemleri kullanıcının JWT'siyle devam eder. Yeni hesap için benzersiz kullanıcı adı, e-posta ve en az 12 karakterli şifre girilir; e-posta hesap altyapısı içindir, girişte kullanıcı adı kullanılır. Kullanıcılar Supabase Auth'da oluşturulur; başlangıçtaki pasif profil yalnızca yöneticinin RPC çağrısıyla etkinleştirilir. Auth hesabı oluşturulup profil güncellemesi başarısız olursa hesap pasif kalır ve kullanıcıya kısmi işlem açıklanır; tekrar hesap oluşturmadan mevcut profil düzenlenmelidir.
 
-Giriş e-postası Supabase Authentication üzerinden yönetilir. Uygulama kullanıcı listesi profil adlarını gösterir; diğer hesapların Auth e-postalarını topluca getirmez. Şifre yenileme eski erişim JWT'lerinin anında iptal edildiği anlamına gelmez; JWT ömrü Supabase ayarlarına bağlıdır. Hesap pasifleştirme ve rol değişimleri her istekte profil/RLS ile kontrol edilir.
+Yönetici, Kullanıcılar ekranından kullanıcı adlarını değiştirebilir. Kullanıcı listesi ad ve kullanıcı adını gösterir; diğer hesapların Auth e-postalarını topluca getirmez. Kullanıcı adı/e-posta eşlemesi `resolve_login_username` RPC'siyle yalnız sunucuya açıktır; bu işlevi anonim veya normal oturumlar çağıramaz. Şifre yenileme eski erişim JWT'lerinin anında iptal edildiği anlamına gelmez; JWT ömrü Supabase ayarlarına bağlıdır. Hesap pasifleştirme ve rol değişimleri her istekte profil/RLS ile kontrol edilir.
 
 ### İlk yönetici
 
-Bu projenin veritabanı ve ilk yönetici kurulumu kullanıcı tarafından Supabase panelinde tamamlandı. Sıfırdan farklı bir proje kurulacaksa `supabase/README.md` adımlarını izleyin. **Başarılı ilk migration'ı yeniden çalıştırmayın.** Sunucu yönetici hesabı oluşturmaz veya şifre atamaz. Giriş sorununda e-postayı/şifreyi kullanıcı panelde kontrol etmelidir; sohbette şifre istemeyin.
+Bu projenin veritabanı ve ilk yönetici kurulumu kullanıcı tarafından Supabase panelinde tamamlandı. Sıfırdan farklı bir proje kurulacaksa `supabase/README.md` adımlarını izleyin. **Başarılı ilk migration'ı yeniden çalıştırmayın.** Sunucu yönetici hesabı oluşturmaz veya şifre atamaz. Giriş sorununda kullanıcı adını Kullanıcılar ekranından, hesabın e-posta bilgisini gerektiğinde Supabase panelinden kontrol edin; sohbette şifre istemeyin.
 
 ## Vercel üzerinden yayın
 
@@ -43,7 +43,7 @@ Depo kökünde `vercel.json` ve Node işlevi `api/index.js` hazırdır. `public/
 3. Framework **Other**, Root Directory depo kökü, Node.js **24.x**, Build Command `npm run build`, Output Directory `public` kullanın. `npm ci` kurulumunu kullanın.
 4. Vercel projesinin güvenli Environment Variables alanına `SUPABASE_SERVICE_ROLE_KEY` ekleyin. URL/Publishable key config.js içinde hazırdır; istenirse aynı isimli ortam değişkenleriyle verilebilir.
 5. Deploy edin. Ortam değişkeni sonradan eklendiyse yeniden deploy edin.
-6. Oluşan HTTPS adresinde kendi Supabase hesabınızla giriş yapın. Ürün ekleme, şube kullanıcısı oluşturma, şubeyle normal/özel sipariş, yönetici onayı, imalatla hazırlama/teslim ve diğer şubenin kayıtlarını görememe kontrollerini yapın.
+6. Oluşan HTTPS adresinde `hakan` kullanıcı adı ve mevcut yönetici şifresiyle giriş yapın. Ürün ekleme, şube kullanıcısı oluşturma, şubeyle normal/özel sipariş, yönetici onayı, imalatla hazırlama/teslim ve diğer şubenin kayıtlarını görememe kontrollerini yapın.
 
 Bu dosyaların hazır olması **GitHub'a gönderim veya Vercel dağıtımı yapıldığı anlamına gelmez**. Şu aşamada canlı uygulama adresi oluşturulmamıştır. Bulut geliştirme ortamını yayımlamak uygulamayı Vercel'de yayımlamaz. Sunucu Vercel'de Secure çerez kullanır; başka barındırmada HTTPS ve `NODE_ENV=production` veya `COOKIE_SECURE=1` gereklidir.
 
@@ -76,7 +76,7 @@ E-posta bildirimleri, dosya yükleme, sipariş revizyonu/iptali, şifre kurtarma
 
 ## Eski SQLite sürümü
 
-`server.js`, `scripts/setup.sh` ve ilgili testler önceki yerel sürüm içindir; veriler varsa `data/` dizini korunur. Manuel kullanım: `npm run setup:sqlite`, ardından `npm run start:sqlite`. Güncel e-posta ekranı Supabase için tasarlandığından eski SQLite sürümü aktif yayın hedefi değildir. Otomatik SQLite → Supabase veri aktarımı yapılmaz.
+`server.js`, `scripts/setup.sh` ve ilgili testler önceki yerel sürüm içindir; veriler varsa `data/` dizini korunur. Manuel kullanım: `npm run setup:sqlite`, ardından `npm run start:sqlite`. Güncel kullanıcı adı ekranı Supabase için tasarlandığından eski SQLite sürümü aktif yayın hedefi değildir. Otomatik SQLite → Supabase veri aktarımı yapılmaz.
 
 ## Kategori, pasta boyutu ve logo güncellemesi
 
@@ -89,3 +89,13 @@ Bebek ve çocuk pastaları, Kutlama pastaları, Vitrin pastaları ve Cheesecake 
 Sipariş kalemlerinde ürün adı/birimiyle birlikte kategori, alt kategori ve kişi sayısı snapshot olarak tutulur; katalogda sonraki düzenlemeler eski siparişleri değiştirmez. Üretim ayrıntıları, geçmiş, rapor ve CSV kişi sayısını gösterir. Aynı pastanın farklı kişilikleri ayrı rapor satırlarıdır. Yeni sunucu `save_product_v2` ve `create_order_v2` kullanır; eski RPC yazma izinleri doğrulamayı atlamamak için kaldırılır. Eksik migration açık bir kurulum mesajı verir; eski işlevlere sessiz dönüş yapılmaz.
 
 Logo, kullanıcının sağladığı `topraktan-logo.tif` dosyasından renk/görünüm değiştirilmeden kayıpsız PNG'ye dönüştürüldü (`public/logo.png`, 2139×695). Giriş ekranı, yan menü ve site simgesi aynı görseli kullanır. Orijinal siyah zemin ve beyaz yazı korunmuştur.
+
+## Kullanıcı adı geçişi
+
+Canlı projede yalnızca `supabase/migrations/202610210003_usernames.sql` dosyasının tamamını Supabase SQL Editor'da çalıştırın. İlk kurulum ve kategori migration'ı daha önce kullanıcı tarafından başarıyla çalıştırıldı; bunları yeniden uygulamak gerekmez. Sıfırdan kurulumda üç dosya ad sırasıyla uygulanır. Kullanıcı adı migration'ı tekrar çalıştırılabilir; mevcut kullanıcı adlarını sıfırlamaz.
+
+İlk yönetici `hakan`; ilk şube operatörleri `bahce`, `kucukpark`, `evka3`, `imalat`; imalat sorumlusu `imalat_sorumlusu` adını alır. Aynı rolde/birimde birden çok hesap varsa sayı eklenir (`bahce2` vb.). Hesap UUID'leri, e-postalar, şifreler, roller, aktiflik ve sipariş ilişkileri korunur. İşlemden sonra yönetici Kullanıcılar ekranından adları düzenleyebilir. Yeni kayıtlar pasif ve kullanıcı adı atanmamış olarak başlar; yalnız yönetici hesabı etkinleştirip ad atayabilir.
+
+Kullanıcı adları 3–32 karakterdir; a-z, 0-9, nokta, tire ve alt çizgi kabul edilir. Büyük/küçük harf farkı yoktur; kullanıcı adları küçük harfe çevrilir ve tekil indeksle korunur. Aktif bir profilde kullanıcı adı bulunması zorunludur. Bilinmeyen, pasif veya şifresi yanlış hesaplar girişte aynı hata yanıtını verir. Kullanıcı adı eşlemesi/e-posta döndüren RPC yalnız `service_role` tarafından çağrılabilir; sipariş/RLS çağrıları yine kullanıcı JWT'siyle yapılır. Kullanıcı adı değişikliği mevcut oturum kimliğini veya şifreyi değiştirmez.
+
+Bu yeni migration canlıda henüz doğrulanmamıştır; SQL ve Auth protokolü yerel testlerde doğrulanmıştır. Migration eksikken giriş e-postaya geri dönmez; açıklayıcı 503 kurulum hatası verir.

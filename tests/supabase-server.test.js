@@ -8,10 +8,10 @@ test('Supabase sunucusu: Auth, cookie, RLS, RPC, kullanıcı yönetimi ve tam ra
  await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(async()=>{await new Promise(r=>server.close(r));await f.close();});
  const base=`http://127.0.0.1:${server.address().port}`;
  async function req(path,body,cookie,extra={}){const response=await fetch(base+'/api/'+path,{method:body?'POST':'GET',headers:{...(body?{'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{}),...extra},body:body?JSON.stringify(body):undefined});const cookies=response.headers.getSetCookie();return {status:response.status,data:await response.json(),cookies,cookie:cookies.map(c=>c.split(';')[0]).join('; ')};}
- async function login(name){const r=await req('login',{username:name+'@example.test',password:'fixture-password-123'});assert.equal(r.status,200);assert.ok(r.cookies.every(c=>c.includes('HttpOnly')&&c.includes('SameSite=Strict')&&c.includes('Secure')));return r.cookie;}
+ async function login(name){const r=await req('login',{username:name,password:'fixture-password-123'});assert.equal(r.status,200);assert.ok(r.cookies.every(c=>c.includes('HttpOnly')&&c.includes('SameSite=Strict')&&c.includes('Secure')));return r.cookie;}
  assert.equal((await req('config')).data.backend,'supabase');assert.equal((await req('orders')).status,401);
- assert.equal((await req('login',{username:'admin@example.test',password:'wrong'})).status,401);
- assert.equal((await req('login',{username:'disabled@example.test',password:'fixture-password-123'})).status,403);
+ assert.equal((await req('login',{username:'admin',password:'wrong'})).status,401);
+ assert.equal((await req('login',{username:'disabled',password:'fixture-password-123'})).status,401);
  const admin=await login('admin'),manager=await login('manager'),bahce=await login('bahce'),park=await login('park'),imalat=await login('imalat');
  assert.equal((await req('me',null,admin)).data.role,'admin');assert.equal((await req('me',null,bahce)).data.unit,'Bahçe');
  assert.equal((await req('users',null,bahce)).status,403);
@@ -27,10 +27,10 @@ test('Supabase sunucusu: Auth, cookie, RLS, RPC, kullanıcı yönetimi ve tam ra
  assert.equal((await req(`orders/${id}/status`,{status:'approved'},manager)).status,200);
  for(const status of ['preparing','ready','delivered'])assert.equal((await req(`orders/${id}/status`,{status},imalat)).status,200);
  orders=(await req('orders',null,bahce)).data;assert.equal(orders[0].events.length,5);assert.equal(orders[0].status,'delivered');
- const newUser={name:'Evka Operatörü',email:'evka@example.test',password:'new-user-password-123',role:'operator',unit:'Evka3',active:true};
+ const newUser={name:'Evka Operatörü',username:'evka_operator',email:'evka@example.test',password:'new-user-password-123',role:'operator',unit:'Evka3',active:true};
  assert.equal((await req('users',newUser,bahce)).status,403);
  const created=await req('users',newUser,admin);assert.equal(created.status,200);assert.match(created.data.id,/^[0-9a-f-]{36}$/);
- let evka=await req('login',{username:newUser.email,password:newUser.password});assert.equal(evka.status,200);assert.equal(evka.data.unit,'Evka3');
+ let evka=await req('login',{username:newUser.username,password:newUser.password});assert.equal(evka.status,200);assert.equal(evka.data.unit,'Evka3');
  const account=(await req('users',null,admin)).data.find(u=>u.id===created.data.id);
  assert.equal((await req('users',{...account,active:false},admin)).status,200);assert.equal((await req('orders',null,evka.cookie)).status,403);
  const me=(await req('me',null,admin)).data;assert.equal((await req('users',{...me,role:'operator',unit:'Bahçe'},admin)).status,400);
@@ -44,22 +44,21 @@ test('Supabase sunucusu: Auth, cookie, RLS, RPC, kullanıcı yönetimi ve tam ra
  assert.equal((await req('orders',cakeBody,bahce)).status,201);
  const cakeOrder=(await req('orders',null,admin)).data[0];assert.deepEqual(cakeOrder.items.map(i=>i.servings),[6,11]);assert.ok(cakeOrder.items.every(i=>i.category==='Pastalar'&&i.subcategory==='Cheesecake'));
  assert.equal((await req('orders',{...cakeBody,items:[{product_id:cake.id,quantity:1}]},bahce)).status,400);
- const userWrites=f.calls.filter(c=>c.path.includes('/rest/v1/rpc/'));assert.ok(userWrites.every(c=>c.token?.startsWith('Bearer access-')));assert.ok(userWrites.every(c=>c.apikey!=='fixture-service-key'));
+ const userWrites=f.calls.filter(c=>c.path.includes('/rest/v1/rpc/'));assert.ok(userWrites.every(c=>c.path.endsWith('/resolve_login_username')||c.token?.startsWith('Bearer access-')));assert.ok(userWrites.every(c=>c.path.endsWith('/resolve_login_username')||c.apikey!=='fixture-service-key'));
 });
 
-test('Yönetici anahtarı olmadan mevcut profiller yönetilir; yeni hesap güvenli biçimde engellenir',async t=>{
+test('Yönetici anahtarı eksikse kullanıcı adıyla giriş açık kurulum mesajı verir',async t=>{
  const f=await fixture();const {server}=createApp({fetchImpl:f.fetchImpl,serviceKey:''});await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(async()=>{await new Promise(r=>server.close(r));await f.close();});
- const url=`http://127.0.0.1:${server.address().port}/api/`;const login=await fetch(url+'login',{method:'POST',body:JSON.stringify({username:'admin@example.test',password:'fixture-password-123'})});const cookie=login.headers.getSetCookie().map(c=>c.split(';')[0]).join('; ');
- const response=await fetch(url+'users',{method:'POST',headers:{Cookie:cookie},body:JSON.stringify({name:'Yeni',email:'new@example.test',password:'example-password-123',role:'operator',unit:'Bahçe',active:true})});assert.equal(response.status,503);assert.equal(f.calls.filter(c=>c.path==='/auth/v1/admin/users').length,0);
- const profiles=await fetch(url+'users',{headers:{Cookie:cookie}});assert.equal(profiles.status,200);assert.ok((await profiles.json()).length>1);
+ const url=`http://127.0.0.1:${server.address().port}/api/`;const login=await fetch(url+'login',{method:'POST',body:JSON.stringify({username:'admin',password:'fixture-password-123'})});
+ assert.equal(login.status,503);assert.match((await login.json()).error,/SUPABASE_SERVICE_ROLE_KEY/);assert.equal(f.calls.filter(c=>c.path==='/auth/v1/token').length,0);
 });
 
 
 test('Sunucusuz işlevin önceden ayrıştırılmış JSON gövdesi kabul edilir', async t => {
  const f=await fixture();t.after(()=>f.close());
- const {handler}=createApp({fetchImpl:f.fetchImpl});
+ const {handler}=createApp({fetchImpl:f.fetchImpl,serviceKey:'fixture-service-key'});
  const headers={};let status,output;
  const response={setHeader:(k,v)=>headers[k]=v,writeHead:(s)=>{status=s;},end:value=>{output=value;}};
- await handler({url:'/api/login',method:'POST',headers:{host:'example.test'},body:{username:'admin@example.test',password:'fixture-password-123'}},response);
+ await handler({url:'/api/login',method:'POST',headers:{host:'example.test'},body:{username:'admin',password:'fixture-password-123'}},response);
  assert.equal(status,200);assert.equal(JSON.parse(output).role,'admin');assert.equal(headers['Set-Cookie'].length,2);
 });
