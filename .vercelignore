@@ -1,0 +1,8 @@
+.env
+.env.*
+data/
+tests/
+test-support/
+scripts/
+supabase/
+server.js

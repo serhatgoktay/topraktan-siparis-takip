@@ -1,0 +1,20 @@
+{
+  "name": "topraktan-siparis-takip",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --use-env-proxy supabase-server.js",
+    "dev": "node --env-file-if-exists=.env --use-env-proxy --watch supabase-server.js",
+    "test": "node --test",
+    "start:sqlite": "node server.js",
+    "setup:sqlite": "bash scripts/setup.sh",
+    "build": "node --check supabase-server.js && node --check public/app.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10"
+  }
+}
