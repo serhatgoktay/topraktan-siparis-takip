@@ -8,7 +8,9 @@ const error = (message, status = 400) => Object.assign(new Error(message), { sta
 const files = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
+  '/catalog.js': ['catalog.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
+  '/logo.png': ['logo.png', 'image/png'],
   '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
 };
 function parseCookies(header = '') {
@@ -81,7 +83,7 @@ export function createApp({
       if (data?.error_code === 'invalid_credentials' || /invalid login credentials/i.test(message)) throw error('E-posta veya şifre hatalı.', 401);
       if (/email not confirmed/i.test(message)) throw error('E-posta adresi henüz doğrulanmamış.', 401);
       if (response.status === 429) throw error('Çok fazla deneme yapıldı. Lütfen daha sonra tekrar deneyin.', 429);
-      if (data?.code === 'PGRST202') throw error('Supabase kurulum fonksiyonu bulunamadı. Veritabanı kurulumunu kontrol edin.', 503);
+      if (data?.code === 'PGRST202') throw error('Supabase kategori güncellemesi eksik. Kategori güncelleme SQL dosyasını çalıştırın.', 503);
       if (data?.code === '23505') throw error('Bu kayıt zaten mevcut.');
       if (data?.code?.startsWith('23')) throw error('Kayıt bilgileri geçersiz. Ürün, birim ve miktarı kontrol edin.');
       throw error(message, response.status >= 500 ? 502 : 400);
@@ -202,7 +204,7 @@ export function createApp({
       if (path === '/api/products' && req.method === 'GET') return send(await all('/rest/v1/products?select=*&order=id.asc', token));
       if (path === '/api/products' && req.method === 'POST') {
         if (!['admin', 'manager'].includes(user.role)) throw error('Ürün düzenleme yetkiniz yok.', 403);
-        await remote('/rest/v1/rpc/save_product', { token, body: { p_name: body.name, p_measure: body.measure, p_id: body.id || null, p_active: body.active !== false } });
+        await remote('/rest/v1/rpc/save_product_v2', { token, body: { p_name: body.name, p_measure: body.measure, p_category: body.category || null, p_subcategory: body.subcategory || null, p_id: body.id || null, p_active: body.active !== false } });
         return send({ ok: true });
       }
       if (path === '/api/orders' && req.method === 'GET') {
@@ -213,7 +215,7 @@ export function createApp({
         })));
       }
       if (path === '/api/orders' && req.method === 'POST') {
-        const id = await remote('/rest/v1/rpc/create_order', { token, body: {
+        const id = await remote('/rest/v1/rpc/create_order_v2', { token, body: {
           p_unit_id: ['admin', 'manager'].includes(user.role) ? unitNames.indexOf(body.unit) + 1 : user.unit_id,
           p_delivery: body.delivery, p_items: body.items, p_note: body.note || '',
         } });

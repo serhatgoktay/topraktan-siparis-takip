@@ -16,9 +16,9 @@ test('Supabase sunucusu: Auth, cookie, RLS, RPC, kullanıcı yönetimi ve tam ra
  assert.equal((await req('me',null,admin)).data.role,'admin');assert.equal((await req('me',null,bahce)).data.unit,'Bahçe');
  assert.equal((await req('users',null,bahce)).status,403);
  assert.equal((await req('products',{name:'X',measure:'adet'},bahce)).status,403);
- for(const name of ['Poğaça','Simit','Börek'])assert.equal((await req('products',{name,measure:'adet'},manager)).status,200);
+ for(const name of ['Poğaça','Simit','Börek'])assert.equal((await req('products',{name,measure:'adet',category:'Tatlı kurabiyeler',subcategory:null},manager)).status,200);
  const products=(await req('products',null,bahce)).data;assert.equal(products.length,3);
- const body={unit:'Küçükpark',delivery:'2099-10-21',note:'Not',items:[{product_id:products[0].id,quantity:12},{name:'Özel pasta',quantity:2,measure:'tepsi'}]};
+ const body={unit:'Küçükpark',delivery:'2099-10-21',note:'Not',items:[{product_id:products[0].id,quantity:12},{name:'Özel pasta',quantity:2,measure:'tepsi',category:'Pastalar',subcategory:'Figürlü adet pastalar'}]};
  for(let i=0;i<3;i++)assert.equal((await req('orders',body,bahce)).status,201);
  let orders=(await req('orders',null,admin)).data;assert.equal(orders.length,3);assert.equal(orders[0].unit,'Bahçe');assert.equal(orders[0].items[0].name,'Poğaça');assert.equal(orders[0].events[0].actor,'bahce');
  assert.equal((await req('orders',null,park)).data.length,0);assert.equal((await req('orders',null,imalat)).data.length,0);
@@ -38,6 +38,12 @@ test('Supabase sunucusu: Auth, cookie, RLS, RPC, kullanıcı yönetimi ve tam ra
  assert.equal((await req('me',null,'sb_access=invalid; sb_refresh=invalid')).status,401);
  assert.equal((await req('products',{name:'CSRF',measure:'adet'},admin,{Origin:'https://attacker.test'})).status,403);
  assert.equal((await req('logout',{},manager)).status,200);assert.equal((await req('me',null,manager.split('; ')[0])).status,401);
+ assert.equal((await req('products',{name:'Çikolatalı pasta',measure:'adet',category:'Pastalar',subcategory:'Cheesecake'},manager)).status,200);
+ const cake=(await req('products',null,admin)).data.find(p=>p.name==='Çikolatalı pasta');
+ const cakeBody={...body,items:[{product_id:cake.id,quantity:2,servings:6},{product_id:cake.id,quantity:1,servings:11}]};
+ assert.equal((await req('orders',cakeBody,bahce)).status,201);
+ const cakeOrder=(await req('orders',null,admin)).data[0];assert.deepEqual(cakeOrder.items.map(i=>i.servings),[6,11]);assert.ok(cakeOrder.items.every(i=>i.category==='Pastalar'&&i.subcategory==='Cheesecake'));
+ assert.equal((await req('orders',{...cakeBody,items:[{product_id:cake.id,quantity:1}]},bahce)).status,400);
  const userWrites=f.calls.filter(c=>c.path.includes('/rest/v1/rpc/'));assert.ok(userWrites.every(c=>c.token?.startsWith('Bearer access-')));assert.ok(userWrites.every(c=>c.apikey!=='fixture-service-key'));
 });
 

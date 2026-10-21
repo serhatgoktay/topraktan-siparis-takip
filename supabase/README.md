@@ -26,3 +26,9 @@ Migration tek transaction içindedir; mevcut tabloları silmez. Aynı adlı tabl
 ## Doğrulama
 
 `npm test` yerel PostgreSQL/PGlite üzerinde RLS'yi ve Supabase adaptörünü test eder. Auth bu testlerde taklit edilir. Gerçek giriş, ağ erişimi, Supabase Auth yapılandırması ve canlı yayın ayrıca doğrulanmalıdır. Ürün, birim, miktar snapshot'ları ve işlem geçmişi RPC içinde atomik yazılır. Genel raporlar da erişimi kısıtlanan sipariş verisinden hesaplanır.
+
+## Kategori güncellemesi (canlıda uygulanması bekleniyor)
+
+Uygulama artık `202610210002_catalog_servings.sql` dosyasındaki `save_product_v2` / `create_order_v2` işlevlerini kullanır. Dosyanın tamamını mevcut projede SQL Editor → New query → Run ile çalıştırın. İlk migration'ı tekrarlamayın. Bu yeni migration mevcut veriyi korur ve tekrar uygulanabilir. Yerel testlerde migration'ın iki kez çalıştırılması, eski ürün/siparişlerin korunması, yetki kontrolleri ve 4/6/8/Diğer kişilik seçenekleri doğrulanmıştır; canlı projede uygulanması henüz doğrulanmamıştır.
+
+GitHub dosyasını açarken **Copy raw file** düğmesini kullanın; bir ön izleme ekranının yalnızca ilk 100 satırını kopyalamayın. Son satır `commit;` olmalıdır.

@@ -2,13 +2,14 @@
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-export async function fixture() {
+export async function fixture({catalogMigration=true}={}) {
  const db = new PGlite();
  await db.exec(`create role anon; create role authenticated; create schema auth;
  create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb not null default '{}');
  create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
  grant usage on schema auth to authenticated; grant execute on function auth.uid() to authenticated;`);
  await db.exec(readFileSync(new URL('../supabase/migrations/202610210001_initial.sql',import.meta.url),'utf8'));
+ if(catalogMigration)await db.exec(readFileSync(new URL('../supabase/migrations/202610210002_catalog_servings.sql',import.meta.url),'utf8'));
  let queue = Promise.resolve();
  function sql(id,query,params=[]) {
   const op=queue.then(async()=>{
@@ -50,10 +51,10 @@ export async function fixture() {
    if(!id)return json({message:'Missing JWT'},401);
    const name=u.pathname.split('/').at(-1);
    if(u.pathname.startsWith('/rest/v1/rpc/')){
-    const spec={save_product:['p_name','p_measure','p_id','p_active'],create_order:['p_unit_id','p_delivery','p_items','p_note'],change_order_status:['p_order_id','p_status','p_note'],admin_set_profile:['p_user_id','p_name','p_role','p_unit_id','p_active']}[name];
+    const spec={save_product_v2:['p_name','p_measure','p_category','p_subcategory','p_id','p_active'],create_order_v2:['p_unit_id','p_delivery','p_items','p_note'],save_product:['p_name','p_measure','p_id','p_active'],create_order:['p_unit_id','p_delivery','p_items','p_note'],change_order_status:['p_order_id','p_status','p_note'],admin_set_profile:['p_user_id','p_name','p_role','p_unit_id','p_active']}[name];
     if(!spec)return json({code:'PGRST202',message:'Missing function'},404);
     const params=spec.map(k=>k==='p_items'?JSON.stringify(body[k]):body[k]);
-    const casts={create_order:['smallint','date','jsonb','text'],save_product:['text','text','bigint','boolean'],change_order_status:['bigint','text','text'],admin_set_profile:['uuid','text','text','smallint','boolean']}[name];
+    const casts={create_order_v2:['smallint','date','jsonb','text'],save_product_v2:['text','text','text','text','bigint','boolean'],create_order:['smallint','date','jsonb','text'],save_product:['text','text','bigint','boolean'],change_order_status:['bigint','text','text'],admin_set_profile:['uuid','text','text','smallint','boolean']}[name];
     const r=await sql(id,`select public.${name}(${casts.map((c,i)=>'$'+(i+1)+'::'+c).join(',')}) as result`,params);
     return json(r.rows[0].result);
    }

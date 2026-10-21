@@ -77,3 +77,15 @@ E-posta bildirimleri, dosya yükleme, sipariş revizyonu/iptali, şifre kurtarma
 ## Eski SQLite sürümü
 
 `server.js`, `scripts/setup.sh` ve ilgili testler önceki yerel sürüm içindir; veriler varsa `data/` dizini korunur. Manuel kullanım: `npm run setup:sqlite`, ardından `npm run start:sqlite`. Güncel e-posta ekranı Supabase için tasarlandığından eski SQLite sürümü aktif yayın hedefi değildir. Otomatik SQLite → Supabase veri aktarımı yapılmaz.
+
+## Kategori, pasta boyutu ve logo güncellemesi
+
+Canlı projede ilk migration zaten çalıştırıldıysa **yalnızca** `supabase/migrations/202610210002_catalog_servings.sql` dosyasını Supabase SQL Editor'da tam metin olarak çalıştırın. Bu adım uzaktan otomatik uygulanmaz. Dosya tekrar çalıştırılabilir; mevcut ürün ve siparişler silinmez, örnek ürün eklenmez. Sıfırdan projede önce `202610210001_initial.sql`, sonra bu güncelleme çalıştırılır.
+
+Kategori listesi: Çikolatalar, Pastalar, Tatlı kurabiyeler, Sütlü tatlılar, Şerbetli tatlılar, Tuzlu kurabiyeler. Pastalar altında Figürlü adet pastalar, Bebek ve çocuk pastaları, Kutlama pastaları, Vitrin pastaları, Adet pastalar ve Cheesecake bulunur. Katalog yönetiminde kategori/alt kategoriyle filtreleme ve ürün ekleme/düzenleme vardır. Ürünleri yönetici veya imalat sorumlusu kendisi ekler.
+
+Bebek ve çocuk pastaları, Kutlama pastaları, Vitrin pastaları ve Cheesecake ürünleri için siparişte **4 / 6 / 8 kişilik / Diğer** seçilir. Diğer, 1–10.000 arası pozitif tam sayı kabul eder. Kişi sayısı pasta boyutudur; örneğin miktar 2, kişi sayısı 6, iki adet altı kişilik pasta demektir. Figürlü adet pastalar, Adet pastalar ve diğer ana kategorilerde kişilik alanı gösterilmez. Özel siparişler de kategori ve kişilik kurallarından geçer. Mevcut kategorisiz ürünler korunur ve sınıflandırılana kadar sipariş edilebilir; yeni ürün için kategori zorunludur.
+
+Sipariş kalemlerinde ürün adı/birimiyle birlikte kategori, alt kategori ve kişi sayısı snapshot olarak tutulur; katalogda sonraki düzenlemeler eski siparişleri değiştirmez. Üretim ayrıntıları, geçmiş, rapor ve CSV kişi sayısını gösterir. Aynı pastanın farklı kişilikleri ayrı rapor satırlarıdır. Yeni sunucu `save_product_v2` ve `create_order_v2` kullanır; eski RPC yazma izinleri doğrulamayı atlamamak için kaldırılır. Eksik migration açık bir kurulum mesajı verir; eski işlevlere sessiz dönüş yapılmaz.
+
+Logo, kullanıcının sağladığı `topraktan-logo.tif` dosyasından renk/görünüm değiştirilmeden kayıpsız PNG'ye dönüştürüldü (`public/logo.png`, 2139×695). Giriş ekranı, yan menü ve site simgesi aynı görseli kullanır. Orijinal siyah zemin ve beyaz yazı korunmuştur.
