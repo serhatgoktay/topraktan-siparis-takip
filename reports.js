@@ -1,13 +1,14 @@
+import {orderChanges, EVENT_LABELS} from './public/workflow.js';
 import ExcelJS from 'exceljs';
 import {calendarDate, matchesOrderFilters} from './public/dates.js';
 import {summarizeProducts} from './public/catalog.js';
 
-export const STATUS_LABELS={pending:'Onay bekliyor',approved:'Onaylandı',preparing:'Hazırlanıyor',ready:'Hazır',delivered:'Teslim edildi',rejected:'Reddedildi'};
+export const STATUS_LABELS={pending:'Onay bekliyor',approved:'Onaylandı',preparing:'Hazırlanıyor',ready:'Hazır',delivered:'Teslim edildi',rejected:'Reddedildi',cancelled:'İptal edildi'};
 const units=['Bahçe','Küçükpark','Evka3'];
 export const MAX_EXCEL_LINES=20000;
 export function reportFilters(params) {
-  const result=Object.fromEntries(['unit','status','from','to','search','dateField'].map(k=>[k,params.get(k)||'']));
-  if(result.unit&&!units.includes(result.unit)||result.status&&!STATUS_LABELS[result.status]||result.dateField&&!['created_at','delivery'].includes(result.dateField))throw Object.assign(Error('Rapor filtreleri geçersiz.'),{status:400});
+  const result=Object.fromEntries(['unit','status','from','to','search','dateField','reportType'].map(k=>[k,params.get(k)||'']));
+  if(result.unit&&!units.includes(result.unit)||result.status&&!STATUS_LABELS[result.status]||result.dateField&&!['created_at','delivery','completed_at'].includes(result.dateField)||result.reportType&&!['production','completed'].includes(result.reportType))throw Object.assign(Error('Rapor filtreleri geçersiz.'),{status:400});
   for(const key of ['from','to'])if(result[key]&&(!/^\d{4}-\d{2}-\d{2}$/.test(result[key])||!Number.isFinite(Date.parse(result[key]))||new Date(result[key]).toISOString().slice(0,10)!==result[key]))throw Object.assign(Error('Rapor tarih aralığı geçersiz.'),{status:400});
   if(result.search.length>200)throw Object.assign(Error('Arama en fazla 200 karakter olabilir.'),{status:400});
   result.dateField ||= 'delivery';return result;
@@ -30,22 +31,30 @@ export async function createExcelReport(visibleOrders, filter={}, {userName='',b
   const detail=sheet(book,'Siparişler',[
     ['Sipariş no','orderId',14],['Şube','unit',18],['Sipariş tarihi','created',18],['Teslim tarihi','delivery',18],
     ['Durum','status',20],['Ürün','product',32],['Kategori','category',24],['Alt kategori','subcategory',30],
-    ['Kişilik','servings',13],['Miktar','quantity',14],['Birim','measure',12],['Sipariş veren','creator',24],['Not','note',45],
+    ['Kişilik','servings',13],['Miktar','quantity',14],['Birim','measure',12],['İptal miktarı','cancelled',16],['Kalan / Üretilecek','remaining',20],['Ürün açıklaması','description',40],['İmalat tamamlanma tarihi','completed',24],['Sipariş veren','creator',24],['Not','note',45],
   ]);
-  for(const o of orders)for(const i of o.items)detail.addRow({orderId:Number(o.id),unit:o.unit,created:excelDate(o.created_at),delivery:excelDate(o.delivery),status:STATUS_LABELS[o.status],product:i.name,category:i.category||'',subcategory:i.subcategory||'',servings:i.servings||null,quantity:Number(i.quantity),measure:i.measure,creator:o.creator,note:o.note||''});
+  for(const o of orders)for(const i of o.items)detail.addRow({orderId:Number(o.id),unit:o.unit,created:excelDate(o.created_at),delivery:excelDate(o.delivery),status:STATUS_LABELS[o.status],product:i.name,category:i.category||'',subcategory:i.subcategory||'',servings:i.servings||null,quantity:Number(i.quantity),measure:i.measure,cancelled:Number(i.cancelled_quantity||0),remaining:Math.max(0,Number(i.quantity)-Number(i.cancelled_quantity||0)),description:i.description||'',completed:o.completed_at?excelDate(o.completed_at):null,creator:o.creator,note:o.note||''});
+  detail.getColumn('completed').numFmt='dd.mm.yyyy';detail.getColumn('cancelled').numFmt='0.###';detail.getColumn('remaining').numFmt='0.###';
   detail.getColumn('created').numFmt='dd.mm.yyyy';detail.getColumn('delivery').numFmt='dd.mm.yyyy';detail.getColumn('quantity').numFmt='0.###';detail.getColumn('servings').numFmt='0" kişilik"';detail.getColumn('note').alignment={wrapText:true,vertical:'top'};
   const totals=sheet(book,'Ürün toplamları',[
-    ['Ürün','name',34],['Kategori','category',25],['Alt kategori','subcategory',30],['Kişilik','servings',13],['Toplam miktar','quantity',18],['Birim','measure',12],
+    ['Ürün','name',34],['Kategori','category',25],['Alt kategori','subcategory',30],['Kişilik','servings',13],['Kalan / Üretilecek','quantity',20],['Sipariş miktarı','ordered_quantity',18],['İptal miktarı','cancelled_quantity',18],['Birim','measure',12],
   ]);
-  for(const item of summarizeProducts(orders))totals.addRow({name:item.name,category:item.category||'',subcategory:item.subcategory||'',servings:item.servings||null,quantity:item.quantity,measure:item.measure});
-  totals.getColumn('quantity').numFmt='0.###';totals.getColumn('servings').numFmt='0" kişilik"';
+  for(const item of summarizeProducts(orders))totals.addRow({name:item.name,category:item.category||'',subcategory:item.subcategory||'',servings:item.servings||null,quantity:item.quantity,ordered_quantity:item.ordered_quantity,cancelled_quantity:item.cancelled_quantity,measure:item.measure});
+  totals.getColumn('ordered_quantity').numFmt='0.###';totals.getColumn('cancelled_quantity').numFmt='0.###';totals.getColumn('quantity').numFmt='0.###';totals.getColumn('servings').numFmt='0" kişilik"';
   const summary=sheet(book,'Şube özeti',[
     ['Şube','unit',18],['Sipariş sayısı','orders',17],...Object.entries(STATUS_LABELS).map(([key,label])=>[label,key,18]),['Toplam adet','adet',17],['Toplam kg','kg',17],['Toplam tepsi','tepsi',17],
   ]);
-  for(const unit of branchUnits){const rows=orders.filter(o=>o.unit===unit),row={unit,orders:rows.length,adet:0,kg:0,tepsi:0,...Object.fromEntries(Object.keys(STATUS_LABELS).map(s=>[s,0]))};for(const o of rows){row[o.status]++;for(const i of o.items)row[i.measure]+=Number(i.quantity);}summary.addRow(row);}
+  for(const unit of branchUnits){const rows=orders.filter(o=>o.unit===unit),row={unit,orders:rows.length,adet:0,kg:0,tepsi:0,...Object.fromEntries(Object.keys(STATUS_LABELS).map(s=>[s,0]))};for(const o of rows){row[o.status]++;for(const i of o.items)row[i.measure]+=Math.max(0,Number(i.quantity)-Number(i.cancelled_quantity||0));}summary.addRow(row);}
   summary.getColumn('kg').numFmt='0.###';
   const info=sheet(book,'Rapor bilgisi',[['Alan','field',28],['Değer','value',90]]);
-  const records=[['Oluşturma zamanı',book.created.toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})],['Raporu indiren',userName],['Tarih alanı',filter.dateField==='created_at'?'Sipariş tarihi':'Teslim tarihi'],['Başlangıç',filter.from||'Sınır yok'],['Bitiş',filter.to||'Sınır yok'],['Şube filtresi',filter.unit||'Yetkili olduğunuz şubeler'],['Durum',STATUS_LABELS[filter.status]||'Tüm durumlar'],['Arama',filter.search||'Yok'],['Sipariş sayısı',orders.length],['Kalem sayısı',orders.reduce((n,o)=>n+o.items.length,0)],['Kapsam','Yalnızca hesabınızın görebildiği siparişler raporlanır.'],['Kişilik','Kişi sayısı bir pastanın boyutudur. Farklı kişilikler ürün toplamlarında ayrı satırlardadır.'],['Durum kapsamı','Durum filtresi yoksa reddedilenler dahil tüm durumlar raporlanır.']];
+  const records=[['Oluşturma zamanı',book.created.toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'})],['Raporu indiren',userName],['Tarih alanı',filter.dateField==='created_at'?'Sipariş tarihi':filter.dateField==='completed_at'?'İmalat tamamlanma tarihi':'Teslim tarihi'],['Başlangıç',filter.from||'Sınır yok'],['Bitiş',filter.to||'Sınır yok'],['Şube filtresi',filter.unit||'Yetkili olduğunuz şubeler'],['Durum',STATUS_LABELS[filter.status]||'Tüm durumlar'],['Arama',filter.search||'Yok'],['Rapor türü',filter.reportType==='completed'?'Tamamlanan üretim':filter.reportType==='production'?'Günlük üretim listesi':'Sipariş raporu'],['Sipariş sayısı',orders.length],['Kalem sayısı',orders.reduce((n,o)=>n+o.items.length,0)],['Kapsam','Yalnızca hesabınızın görebildiği siparişler raporlanır.'],['Kişilik','Kişi sayısı bir pastanın boyutudur. Farklı kişilikler ürün toplamlarında ayrı satırlardadır.'],['Durum kapsamı','Sipariş raporu tüm durumları; günlük üretim onaylandı/hazırlanıyor/hazır; tamamlanan üretim hazır/teslim edildi durumlarını kapsar. İptaller net toplamdan düşülür.']];
   for(const [field,value] of records)info.addRow({field,value});info.getColumn('value').alignment={wrapText:true,vertical:'top'};
-  return Buffer.from(await book.xlsx.writeBuffer());
+  if(orders.some(o=>(o.events||[]).some(e=>e.kind&&e.kind!=='status'))){
+    const history=sheet(book,'İşlem geçmişi',[['Sipariş','order',14],['Şube','unit',18],['İşlem','kind',24],['Kullanıcı','actor',22],['Zaman','time',26],['Gerekçe / not','note',50],['Önce / Sonra','changes',90]]);
+    for(const o of orders)for(const e of o.events||[])history.addRow({order:Number(o.id),unit:o.unit,kind:EVENT_LABELS[e.kind]||STATUS_LABELS[e.status]||e.kind||'Durum',actor:e.actor||e.actor_name,time:new Date(e.created_at).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul'}),note:e.note||'',changes:orderChanges(e.before_data,e.after_data).map(c=>`${c.label}: ${c.old} → ${c.value}`).join('\n')});
+    history.getColumn('changes').alignment={wrapText:true,vertical:'top'};
+  }
+  const output=Buffer.from(await book.xlsx.writeBuffer());
+  if(output.length>4000000)throw Object.assign(Error('Excel dosyası çok büyük. Daha dar bir tarih aralığı seçin.'),{status:413});
+  return output;
 }

@@ -1,0 +1,56 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {fixture} from '../test-support/supabase-fixture.js';
+
+test('Sipariş revizyonları: RLS, roller, kısmi/tam iptal, bildirim ve üretim kilidi',async t=>{
+ const f=await fixture({workflowMigration:true});t.after(()=>f.close());
+ const id=n=>[...f.accounts.values()].find(a=>a.email===n+'@example.test').id;
+ const run=(n,q,p=[])=>f.sql(id(n),q,p);
+ const item={name:'Özel pasta',measure:'adet',category:'Pastalar',subcategory:'Adet pastalar',quantity:10,description:'Çikolatalı'};
+ async function create(who='bahce'){return (await run(who,'select public.create_order_v3(1::smallint,$1::date,$2::jsonb,$3) as id',['2099-12-12',JSON.stringify([item]),'Not'])).rows[0].id;}
+ const oid=await create();
+ assert.equal((await run('park','select * from public.orders')).rows.length,0);
+ assert.equal((await run('manager','select * from public.orders')).rows.length,0);
+ await assert.rejects(create('manager'),/yetkiniz/);
+ await assert.rejects(run('manager','select public.change_order_status($1,$2,$3)',[oid,'approved','']),/Sipariş bulunamadı/);
+ await assert.rejects(run('manager','select public.create_order_v2(1::smallint,$1::date,$2::jsonb,$3)',['2099-12-12',JSON.stringify([item]),'']),/yetkiniz/);
+ let row=(await run('bahce','select * from public.order_items')).rows[0];
+ await run('bahce','select public.cancel_order_items($1,1,$2::jsonb,$3)',[oid,JSON.stringify([{id:row.id,quantity:3}]),'3 adet gerekmiyor']);
+ row=(await run('bahce','select * from public.order_items')).rows[0];assert.equal(Number(row.cancelled_quantity),3);
+ await assert.rejects(run('bahce','select public.cancel_order_items($1,2,$2::jsonb,$3)',[oid,JSON.stringify([{id:row.id,quantity:8}]),'Fazla']),/kalanı/);
+ await assert.rejects(run('bahce','select public.cancel_order_items($1,1,null,$2)',[oid,'Eski ekran']),/değişmiş/);
+ await run('admin','select public.change_order_status($1,$2,$3)',[oid,'approved','']);
+ await assert.rejects(run('bahce','select public.cancel_order_items($1,3,null,$2)',[oid,'Artık olmaz']),/yetkiniz/);
+ assert.equal((await run('manager','select * from public.orders')).rows.length,1);
+ await run('manager','select public.change_order_status($1,$2,$3)',[oid,'preparing','']);
+ await run('admin','select public.edit_order($1,4,$2::date,$3,$4::jsonb,$5)',[oid,'2099-12-13','Yeni not',JSON.stringify([{...row,description:'Fındıksız'}]),'Alerjen bilgisi']);
+ const event=(await run('manager',"select * from public.order_events where kind='edited'")).rows[0];assert.equal(event.before_data.items[0].description,'Çikolatalı');assert.equal(event.after_data.items[0].description,'Fındıksız');
+ let notices=(await run('manager','select * from public.production_notifications')).rows;assert.equal(notices.length,1);
+ assert.equal((await run('admin','select * from public.production_notifications')).rows.length,0);
+ await assert.rejects(run('manager','select public.cancel_order_items($1,5,null,$2)',[oid,'Olmaz']),/yetkiniz/);
+ await assert.rejects(run('manager','select public.change_order_status($1,$2,$3)',[oid,'ready','']),/kontrolü gerekli/);
+ await run('manager','select public.read_production_notification($1,false)',[notices[0].id]);
+ await assert.rejects(run('admin','select public.change_order_status($1,$2,$3)',[oid,'ready','']),/kontrolü gerekli/);
+ await run('manager','select public.read_production_notification($1,true)',[notices[0].id]);
+ await run('manager','select public.read_production_notification($1,true)',[notices[0].id]);
+ assert.equal((await run('manager',"select * from public.order_events where kind='reviewed'")).rows.length,1);
+ await run('manager','select public.production_message($1,$2,true)',[oid,'Malzeme eksik']);
+ assert.equal((await run('admin',"select * from public.order_events where kind='production_issue'")).rows.length,1);
+ await run('manager','select public.change_order_status($1,$2,$3)',[oid,'ready','']);
+ await run('admin','select public.cancel_order_items($1,6,null,$2)',[oid,'Tamamı iptal']);
+ assert.equal((await run('manager','select status from public.orders')).rows[0].status,'cancelled');
+ assert.equal((await run('manager','select * from public.production_notifications')).rows.length,2);
+ await assert.rejects(run('admin',"update public.orders set revision=99"),/permission denied/);
+ await assert.rejects(run('manager',"update public.production_notifications set reviewed_at=now()"),/permission denied/);
+ // Migration tekrar çalıştırılabilir ve geçmiş korunur.
+ await f.db.exec(readFileSync(new URL('../supabase/migrations/202610220004_order_revisions.sql',import.meta.url),'utf8'));
+ assert.equal((await run('manager','select * from public.production_notifications')).rows.length,2);
+ const second=await create();await run('bahce','select public.cancel_order_items($1,1,null,$2)',[second,'Onay öncesi']);
+ assert.equal((await run('manager','select * from public.orders where id=$1',[second])).rows.length,0);
+ const parkOrder=await create('park');
+ assert.equal((await run('bahce','select * from public.orders where id=$1',[parkOrder])).rows.length,0);
+ await run('admin','select public.change_order_status($1,$2,$3)',[parkOrder,'approved','']);
+ assert.equal((await run('manager','select * from public.orders where id=$1',[parkOrder])).rows[0].unit_id,2);
+ assert.equal((await run('imalat','select * from public.orders where id=$1',[parkOrder])).rows.length,1);
+});

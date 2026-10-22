@@ -21,8 +21,11 @@ export function summarizeProducts(orders) {
       item.product_id ?? null, item.name, item.measure,
       item.category ?? null, item.subcategory ?? null, item.servings ?? null,
     ]);
-    if (!grouped.has(key)) grouped.set(key, { ...item, quantity: 0 });
-    grouped.get(key).quantity += Number(item.quantity);
+    if (!grouped.has(key)) grouped.set(key, { ...item, quantity: 0, ordered_quantity: 0, cancelled_quantity: 0 });
+    const total=grouped.get(key);
+    total.ordered_quantity+=Number(item.quantity);
+    total.cancelled_quantity+=Number(item.cancelled_quantity||0);
+    total.quantity+=Math.max(0,Number(item.quantity)-Number(item.cancelled_quantity||0));
   }
   return [...grouped.values()].sort((a, b) =>
     a.name.localeCompare(b.name, 'tr') || (a.servings || 0) - (b.servings || 0));

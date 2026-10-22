@@ -11,6 +11,7 @@ const files = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/catalog.js': ['catalog.js', 'text/javascript; charset=utf-8'],
+  '/workflow.js': ['workflow.js', 'text/javascript; charset=utf-8'],
   '/dates.js': ['dates.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
   '/logo.png': ['logo.png', 'image/png'],
@@ -55,6 +56,7 @@ export function createApp({
   publishableKey = SUPABASE_PUBLISHABLE_KEY,
   serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   fetchImpl = fetch,
+  workflowEnabled = process.env.ORDER_WORKFLOW_ENABLED === '1',
   secureCookies = process.env.COOKIE_SECURE === '1' || process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL),
 } = {}) {
   const base = url.replace(/\/$/, '');
@@ -91,6 +93,8 @@ export function createApp({
       if (/email not confirmed/i.test(message)) throw error('E-posta adresi henüz doğrulanmamış.', 401);
       if (response.status === 429) throw error('Çok fazla deneme yapıldı. Lütfen daha sonra tekrar deneyin.', 429);
       if (data?.code === 'PGRST202' && (path.includes('resolve_login_username') || path.includes('admin_set_profile_v2'))) throw error('Kullanıcı adı güncellemesi eksik. Supabase kullanıcı adı SQL güncellemesini çalıştırın.', 503);
+      if (data?.code === '40001') throw error(message, 409);
+      if (data?.code === 'PGRST202' && workflowEnabled) throw error('Sipariş ve imalat güncellemesi henüz kurulmamış. Yöneticinize başvurun.', 503);
       if (data?.code === '42703') throw error('Veritabanı güncellemesi eksik. Supabase SQL güncellemelerini kontrol edin.', 503);
       if (data?.code === 'PGRST202') throw error('Supabase kategori güncellemesi eksik. Kategori güncelleme SQL dosyasını çalıştırın.', 503);
       if (data?.code === '23505') throw error('Bu kayıt zaten mevcut.');
@@ -112,9 +116,10 @@ export function createApp({
     throw error('Kayıt sayısı tek rapor sınırını aştı. Sunucuda sayfalama gereklidir.', 413);
   }
   async function ordersFor(token) {
-        const rows = await all('/rest/v1/orders?select=*,items:order_items(*),events:order_events(*)&order=id.desc', token);
-        return rows.map(o => ({ ...o, unit: unitNames[o.unit_id - 1], creator: o.creator_name,
-          items: (o.items || []).map(i => ({ ...i, quantity: Number(i.quantity) })).sort((a, b) => a.id - b.id),
+        const rows = await all(`/rest/v1/orders?select=*,items:order_items(*),events:order_events(*)${workflowEnabled?',images:order_images(id,item_id,mime,created_at,removed_at)':''}&order=id.desc`, token);
+        return rows.map(o => ({ ...o, delivery: String(o.delivery).slice(0,10), unit: unitNames[o.unit_id - 1], creator: o.creator_name,
+          completed_at: (o.events || []).filter(e => e.status === 'ready' && e.kind !== 'reviewed' && ['status',undefined].includes(e.kind)).sort((a,b)=>a.id-b.id).at(-1)?.created_at || null,
+          items: (o.items || []).map(i => ({ ...i, quantity: Number(i.quantity), cancelled_quantity: Number(i.cancelled_quantity || 0) })).sort((a, b) => a.id - b.id),
           events: (o.events || []).map(e => ({ ...e, actor: e.actor_name })).sort((a, b) => a.id - b.id),
         }));
   }
@@ -181,15 +186,16 @@ export function createApp({
           // Vercel may supply an already parsed body instead of an unread stream.
           try { body = typeof req.body === 'string' || Buffer.isBuffer(req.body) ? JSON.parse(String(req.body)) : req.body; }
           catch { throw error('Geçersiz JSON.'); }
-          if (JSON.stringify(body).length > 100000) throw error('İstek çok büyük.', 413);
+          if (Buffer.byteLength(JSON.stringify(body)) > (workflowEnabled && /\/orders\/\d+\/image$/.test(path) ? 1500000 : 100000)) throw error('İstek çok büyük.', 413);
         } else {
           let raw = '';
-          for await (const chunk of req) { raw += chunk; if (raw.length > 100000) throw error('İstek çok büyük.', 413); }
+          req.setEncoding?.('utf8');
+          for await (const chunk of req) { raw += chunk; if (Buffer.byteLength(raw) > (workflowEnabled && /\/orders\/\d+\/image$/.test(path) ? 1500000 : 100000)) throw error('İstek çok büyük.', 413); }
           try { body = JSON.parse(raw || '{}'); } catch { throw error('Geçersiz JSON.'); }
         }
         if (!body || Array.isArray(body) || typeof body !== 'object') throw error('Geçersiz istek.');
       }
-      if (path === '/api/config' && req.method === 'GET') return send({ backend: 'supabase', userProvisioning: Boolean(serviceKey) });
+      if (path === '/api/config' && req.method === 'GET') return send({ backend: 'supabase', userProvisioning: Boolean(serviceKey), workflowEnabled });
       if (path === '/api/login' && req.method === 'POST') {
         const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
         if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username) || typeof body.password !== 'string' || !body.password || body.password.length > 128) throw error('Kullanıcı adı veya şifre hatalı.', 401);
@@ -248,7 +254,8 @@ export function createApp({
       }
       if (path === '/api/orders' && req.method === 'GET') return send(await ordersFor(token));
       if (path === '/api/orders' && req.method === 'POST') {
-        const id = await remote('/rest/v1/rpc/create_order_v2', { token, body: {
+        if (workflowEnabled && (user.role === 'manager' || user.unit === 'İmalat')) throw error('Sipariş oluşturma yetkiniz yok.', 403);
+        const id = await remote('/rest/v1/rpc/' + (workflowEnabled ? 'create_order_v3' : 'create_order_v2'), { token, body: {
           p_unit_id: ['admin', 'manager'].includes(user.role) ? unitNames.indexOf(body.unit) + 1 : user.unit_id,
           p_delivery: body.delivery, p_items: body.items, p_note: body.note || '',
         } });
@@ -256,8 +263,53 @@ export function createApp({
       }
       const statusMatch = path.match(/^\/api\/orders\/(\d+)\/status$/);
       if (statusMatch && req.method === 'POST') {
+        if (workflowEnabled && ['approved','rejected'].includes(body.status) && user.role !== 'admin') throw error('Onay yetkiniz yok.', 403);
+        if (workflowEnabled && ['preparing','ready','delivered'].includes(body.status) && !['admin','manager'].includes(user.role) && user.unit !== 'İmalat') throw error('Üretim yetkiniz yok.', 403);
         await remote('/rest/v1/rpc/change_order_status', { token, body: { p_order_id: Number(statusMatch[1]), p_status: body.status, p_note: body.note || '' } });
         return send({ ok: true });
+      }
+      if (workflowEnabled) {
+        const mutation = path.match(/^\/api\/orders\/(\d+)\/(edit|cancel|image|production-message)$/);
+        if (mutation && req.method === 'POST') {
+          const id = Number(mutation[1]), action = mutation[2];
+          const visible = (await ordersFor(token)).find(o => o.id === id);
+          if (!visible) throw error('Sipariş bulunamadı.', 404);
+          if (action === 'production-message') {
+            if (!['admin','manager'].includes(user.role) && user.unit !== 'İmalat') throw error('İmalat notu yetkiniz yok.', 403);
+            await remote('/rest/v1/rpc/production_message', {token, body:{p_order_id:id,p_note:body.note,p_issue:body.issue === true}});
+          } else {
+            if (user.role !== 'admin' && !(user.role === 'operator' && user.unit !== 'İmalat' && user.unit_id === visible.unit_id && visible.status === 'pending')) throw error('Sipariş düzenleme yetkiniz yok.', 403);
+            const common = {p_order_id:id,p_revision:body.revision,p_reason:body.reason};
+            if (action === 'edit') await remote('/rest/v1/rpc/edit_order', {token,body:{...common,p_delivery:body.delivery,p_note:body.note||'',p_items:body.items}});
+            if (action === 'cancel') await remote('/rest/v1/rpc/cancel_order_items', {token,body:{...common,p_items:body.items ?? null}});
+            if (action === 'image') await remote('/rest/v1/rpc/set_order_image', {token,body:{...common,p_item_id:body.item_id,p_mime:body.mime||null,p_content:body.content??null}});
+          }
+          return send({ok:true});
+        }
+        const image = path.match(/^\/api\/images\/(\d+)$/);
+        if (image && req.method === 'GET') {
+          const imageData = await remote('/rest/v1/rpc/get_order_image', {token,body:{p_id:Number(image[1])}});
+          if (!['image/png','image/jpeg','image/webp'].includes(imageData?.mime)) throw error('Görsel okunamadı.',502);
+          res.writeHead(200,{'Content-Type':imageData.mime,'Cache-Control':'private, no-store','Content-Security-Policy':"default-src 'none'; sandbox"});
+          res.end(Buffer.from(imageData.content,'base64'));return;
+        }
+        if (path === '/api/notifications' && req.method === 'GET') {
+          if (user.role !== 'manager') throw error('Bildirim yetkiniz yok.',403);
+          const [notifications,reads,visible] = await Promise.all([
+            all('/rest/v1/production_notifications?select=*&order=id.desc',token),
+            all('/rest/v1/notification_reads?select=*',token),ordersFor(token),
+          ]);
+          return send(notifications.map(n => {
+            const o = visible.find(o => o.id === n.order_id);
+            return {...n,read:reads.some(r => r.notification_id === n.id),unit:o?.unit,event:o?.events.find(e => e.id === n.event_id),reviewer:o?.events.find(e => e.kind === 'reviewed' && e.note.endsWith('Bildirim #' + n.id))?.actor};
+          }));
+        }
+        const notification = path.match(/^\/api\/notifications\/(\d+)$/);
+        if (notification && req.method === 'POST') {
+          if (user.role !== 'manager') throw error('Bildirim yetkiniz yok.',403);
+          await remote('/rest/v1/rpc/read_production_notification', {token,body:{p_id:Number(notification[1]),p_review:body.review === true}});
+          return send({ok:true});
+        }
       }
       if (path === '/api/users') {
         if (user.role !== 'admin') throw error('Kullanıcı yönetimi yetkiniz yok.', 403);
