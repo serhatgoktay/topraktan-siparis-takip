@@ -57,3 +57,11 @@ Bu dalı main'e birleştirmeden veya Vercel'e göndermeden inceleyin. Bu belgede
 Migration rol kapsamlarını da değiştirdiğinden uygulanmış veritabanında sadece özellik bayrağını kapatmak tam geri alma değildir. Canlı için yedekleme ve uygulama/veritabanı sürümünün birlikte yönetildiği yayın planı hazırlanmalıdır; bu dal otomatik geri alma/silme SQL'i içermez.
 
 Ekran önizlemesi için tarayıcı komutuna `BROWSER_ARTIFACT_DIR=/tmp/topraktan-onizleme` eklenebilir. Beş gerçek ekran görüntüsü (şube düzenleme, imalat kontrolü, değişiklik bildirimi, tamamlanan üretim, mobil) ve tarayıcıdan indirilen örnek `.xlsx` bu dizine kaydedilir. Örnek 10 adet siparişten 3 iptal ve 7 kalan miktarı doğrular; canlı veri içermez.
+
+## Bilgisayara kurulum yapmadan gerçek Supabase testi
+
+[GitHub Actions](https://github.com/serhatgoktay/topraktan-siparis-takip/actions) içindeki **Isolated Supabase integration** görevi Ubuntu test sunucusunda geçici PostgreSQL/Auth/PostgREST başlatır. Başka bir hosted Supabase projesi veya kullanıcının bilgisayarında Docker gerekmez. Hiçbir repository/environment canlı Supabase sırrı kullanılmaz; canlı veritabanına bağlanılmaz.
+
+Görev yalnızca `feature/order-revisions-production` dalındaki ilgili kod değişikliklerinde tetiklenir. Bu dalın Vercel otomatik dağıtımı `vercel.json` içinde kapalıdır; main değiştirilmez. Node testleri ve derleme ardından Supabase CLI 2.75.0 ile migration'lar geçici projeye uygulanır, sahte Auth hesapları oluşturulur ve uygulama gerçek yerel gateway üzerinden kontrol edilir. Test sonunda yalnızca bu geçici proje durdurulur.
+
+`npm run test:supabase` komutu `LOCAL_SUPABASE_STATUS_FILE` ile CLI'nin yerel bağlantı dosyasını okur; hosted endpoint'leri reddeder. Canlı sunucunun HTTPS denetimi korunur. Test adaptörü yalnızca sentetik `https://topraktan-local.invalid` adresini loopback HTTP gateway'e taşır; hiçbir Auth/SQL yanıtı taklit edilmez. Başarılı kontrol özeti **isolated-supabase-test-result** artifact'ına kaydedilir; bağlantı dosyası ve anahtarlar artifact'a eklenmez. Actions sonucu yeşil olmadan gerçek Supabase kabul testi tamamlandı sayılmaz.

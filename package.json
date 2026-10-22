@@ -10,7 +10,8 @@
     "start:sqlite": "node server.js",
     "setup:sqlite": "bash scripts/setup.sh",
     "build": "node --check supabase-server.js && node --check public/app.js && node --check public/workflow.js && node --check reports.js",
-    "test:browser": "node scripts/check-workflow-browser.mjs"
+    "test:browser": "node scripts/check-workflow-browser.mjs",
+    "test:supabase": "node scripts/check-real-supabase.mjs"
   },
   "engines": {
     "node": ">=24"
