@@ -55,3 +55,5 @@ Bu dalı main'e birleştirmeden veya Vercel'e göndermeden inceleyin. Bu belgede
 6. Gerçek Supabase/PostgREST, Vercel gövde sınırları ve yetkili test hesaplarıyla son kabul kontrolü tamamlandıktan sonra ayrı bir yayın kararı gerekir. Bu çalışma canlı rollout veya canlı RLS doğrulaması yapmaz.
 
 Migration rol kapsamlarını da değiştirdiğinden uygulanmış veritabanında sadece özellik bayrağını kapatmak tam geri alma değildir. Canlı için yedekleme ve uygulama/veritabanı sürümünün birlikte yönetildiği yayın planı hazırlanmalıdır; bu dal otomatik geri alma/silme SQL'i içermez.
+
+Ekran önizlemesi için tarayıcı komutuna `BROWSER_ARTIFACT_DIR=/tmp/topraktan-onizleme` eklenebilir. Beş gerçek ekran görüntüsü (şube düzenleme, imalat kontrolü, değişiklik bildirimi, tamamlanan üretim, mobil) ve tarayıcıdan indirilen örnek `.xlsx` bu dizine kaydedilir. Örnek 10 adet siparişten 3 iptal ve 7 kalan miktarı doğrular; canlı veri içermez.
