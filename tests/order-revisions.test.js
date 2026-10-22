@@ -19,7 +19,7 @@ test('Sipariş revizyonları: RLS, roller, kısmi/tam iptal, bildirim ve üretim
  await run('bahce','select public.cancel_order_items($1,1,$2::jsonb,$3)',[oid,JSON.stringify([{id:row.id,quantity:3}]),'3 adet gerekmiyor']);
  row=(await run('bahce','select * from public.order_items')).rows[0];assert.equal(Number(row.cancelled_quantity),3);
  await assert.rejects(run('bahce','select public.cancel_order_items($1,2,$2::jsonb,$3)',[oid,JSON.stringify([{id:row.id,quantity:8}]),'Fazla']),/kalanı/);
- await assert.rejects(run('bahce','select public.cancel_order_items($1,1,null,$2)',[oid,'Eski ekran']),/değişmiş/);
+ await assert.rejects(run('bahce','select public.cancel_order_items($1,1,null,$2)',[oid,'Eski ekran']),e=>e.code==='PT409'&&/değişmiş/.test(e.message));
  await run('admin','select public.change_order_status($1,$2,$3)',[oid,'approved','']);
  await assert.rejects(run('bahce','select public.cancel_order_items($1,3,null,$2)',[oid,'Artık olmaz']),/yetkiniz/);
  assert.equal((await run('manager','select * from public.orders')).rows.length,1);

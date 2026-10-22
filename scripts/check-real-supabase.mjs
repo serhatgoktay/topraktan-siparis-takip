@@ -72,7 +72,10 @@ try{
  o=(await request('admin','orders')).data.find(o=>o.id===oid);
  assert.equal((await request('bahce',`orders/${oid}/cancel`,{revision:o.revision,items:null,reason:'Onay sonrası deneme'})).status,403);
  assert.equal((await request('admin',`orders/${oid}/cancel`,{revision:o.revision,items:[{id:item.id,quantity:3}],reason:'Üç adet iptal'})).status,200);
- assert.equal((await request('admin',`orders/${oid}/cancel`,{revision:o.revision,items:[{id:item.id,quantity:1}],reason:'Eski sürüm'})).status,409);
+ const conflictStart=performance.now();
+ const stale=await request('admin',`orders/${oid}/cancel`,{revision:o.revision,items:[{id:item.id,quantity:1}],reason:'Eski sürüm'});
+ assert.equal(stale.status,409,JSON.stringify(stale.data));
+ assert.ok(performance.now()-conflictStart<15000,'A business conflict must return before the Supabase request timeout.');
  checked('Custom image privacy, edits, approval, partial cancellation and stale revision');
  const notices=(await request('manager','notifications')).data;assert.equal(notices.length,1,JSON.stringify(notices));const n=notices[0];
  assert.equal(Number(n.event.after_data.items[0].cancelled_quantity),3);

@@ -93,7 +93,7 @@ export async function fixture({catalogMigration=true,usernameMigration=true,work
    // A deliberately smaller API cap verifies the adapter never truncates reports.
    if(u.searchParams.has('offset')){const offset=Number(u.searchParams.get('offset'));rows=rows.slice(offset,offset+2);}
    return json(rows);
-  }catch(e){return json({code:e.code||'P0001',message:e.message},e.code==='42501'?403:400);}
+  }catch(e){return json({code:e.code||'P0001',message:e.message},e.code==='42501'?403:e.code==='PT409'?409:400);}
  }
  return {fetchImpl,db,sql,accounts,access,refresh,calls,disabled,close:async()=>{await queue;await db.close();}};
 }

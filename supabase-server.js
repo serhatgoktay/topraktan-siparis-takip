@@ -93,7 +93,7 @@ export function createApp({
       if (/email not confirmed/i.test(message)) throw error('E-posta adresi henüz doğrulanmamış.', 401);
       if (response.status === 429) throw error('Çok fazla deneme yapıldı. Lütfen daha sonra tekrar deneyin.', 429);
       if (data?.code === 'PGRST202' && (path.includes('resolve_login_username') || path.includes('admin_set_profile_v2'))) throw error('Kullanıcı adı güncellemesi eksik. Supabase kullanıcı adı SQL güncellemesini çalıştırın.', 503);
-      if (data?.code === '40001') throw error(message, 409);
+      if (data?.code === 'PT409' || data?.code === '40001') throw error(message, 409);
       if (data?.code === 'PGRST202' && workflowEnabled) throw error('Sipariş ve imalat güncellemesi henüz kurulmamış. Yöneticinize başvurun.', 503);
       if (data?.code === '42703') throw error('Veritabanı güncellemesi eksik. Supabase SQL güncellemelerini kontrol edin.', 503);
       if (data?.code === 'PGRST202') throw error('Supabase kategori güncellemesi eksik. Kategori güncelleme SQL dosyasını çalıştırın.', 503);

@@ -103,7 +103,9 @@ begin
  if actor.id is null or o.id is null or not app_private.can_read_order_id(p_id) then raise exception 'Sipariş bulunamadı' using errcode='42501'; end if;
  if not(actor.role='admin' or (actor.role='operator' and actor.unit_id<>4 and actor.unit_id=o.unit_id and o.status='pending')) then raise exception 'Sipariş düzenleme yetkiniz yok' using errcode='42501'; end if;
  if o.status in ('rejected','cancelled') then raise exception 'Kapatılmış sipariş değiştirilemez'; end if;
- if p_revision is distinct from o.revision then raise exception 'Sipariş değişmiş. Yenileyip tekrar deneyin' using errcode='40001'; end if;
+ -- Bu iş kuralı çakışmasıdır; 40001 PostgREST tarafından yeniden denenebilir.
+ -- PT409 anında HTTP 409 üretir ve aynı eski isteğin tekrarını önler.
+ if p_revision is distinct from o.revision then raise exception 'Sipariş değişmiş. Yenileyip tekrar deneyin' using errcode='PT409'; end if;
  return o;
 end;
 $$;
