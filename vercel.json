@@ -28,10 +28,5 @@
         }
       ]
     }
-  ],
-  "git": {
-    "deploymentEnabled": {
-      "feature/order-revisions-production": false
-    }
-  }
+  ]
 }

@@ -9,16 +9,13 @@
     "test": "node --test",
     "start:sqlite": "node server.js",
     "setup:sqlite": "bash scripts/setup.sh",
-    "build": "node --check supabase-server.js && node --check public/app.js && node --check public/workflow.js && node --check reports.js",
-    "test:browser": "node scripts/check-workflow-browser.mjs",
-    "test:supabase": "node scripts/check-real-supabase.mjs"
+    "build": "node --check supabase-server.js && node --check public/app.js"
   },
   "engines": {
     "node": ">=24"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.10",
-    "playwright": "^1.64.1"
+    "@electric-sql/pglite": "^0.5.10"
   },
   "dependencies": {
     "exceljs": "^4.4.0"

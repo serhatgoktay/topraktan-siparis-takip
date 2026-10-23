@@ -8,10 +8,7 @@ export const displayDate = value => timestamp(value).toLocaleDateString('tr-TR',
   day:'numeric',month:'short',year:'numeric',timeZone:'Europe/Istanbul',
 });
 export function matchesOrderFilters(order, filter = {}) {
-  if(filter.reportType==='production'&&!['approved','preparing','ready'].includes(order.status))return false;
-  if(filter.reportType==='completed'&&!['ready','delivered'].includes(order.status))return false;
-  const day = filter.dateField === 'created_at' ? calendarDate(order.created_at) : filter.dateField==='completed_at' ? (order.completed_at?calendarDate(order.completed_at):'') : order.delivery;
-  if(filter.dateField==='completed_at'&&!day)return false;
+  const day = filter.dateField === 'created_at' ? calendarDate(order.created_at) : order.delivery;
   const search = `${order.id} ${order.unit} ${order.items.map(i =>
     [i.name,i.category,i.subcategory,i.servings ? i.servings + ' kişilik' : ''].filter(Boolean).join(' ')).join(' ')}`;
   return (!filter.unit || order.unit === filter.unit) &&
