@@ -5,6 +5,7 @@ import {execFileSync} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import ExcelJS from 'exceljs';
 import {createApp} from '../supabase-server.js';
+import {buildProductionUpdate} from './build-production-update.mjs';
 
 assert.ok(process.env.LOCAL_SUPABASE_STATUS_FILE,'Local Supabase status file is required. Hosted keys are not supported.');
 const config=JSON.parse(readFileSync(process.env.LOCAL_SUPABASE_STATUS_FILE,'utf8'));
@@ -20,6 +21,10 @@ async function remote(path,{token=serviceKey,method='GET',body}={}){
  const data=await r.json().catch(()=>null);return {status:r.status,data};
 }
 const names=['admin','manager','bahce','park','imalat'],accounts=new Map();
+const repair=buildProductionUpdate(readFileSync(new URL('../supabase/migrations/202610220004_order_revisions.sql',import.meta.url),'utf8'));
+const repairResult=execFileSync('docker',['exec','-i','supabase_db_topraktan-ci','psql','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1'],{input:repair,encoding:'utf8',stdio:['pipe','pipe','pipe']});
+assert.match(repairResult,/GUNCELLEME_TAMAMLANDI/);
+checked('Atomic migration installer and real PostgreSQL post-install verification');
 const password='Local-'+randomBytes(24).toString('base64url');
 for(const name of names){
  const created=await remote('/auth/v1/admin/users',{method:'POST',body:{email:`${name}@topraktan-test.invalid`,password,email_confirm:true,user_metadata:{name}}});

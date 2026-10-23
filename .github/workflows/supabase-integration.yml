@@ -5,6 +5,9 @@ on:
     paths:
       - '.github/workflows/supabase-integration.yml'
       - 'scripts/check-real-supabase.mjs'
+      - 'scripts/build-production-update.mjs'
+      - 'supabase/releases/**'
+      - 'tests/**'
       - 'supabase/migrations/**'
       - 'supabase-server.js'
       - 'api/**'

@@ -48,3 +48,11 @@ Bekleyen: canlı ön kontrol çıktısı; doğrulanmış yedek; izole gerçek Su
 23 Ekim 2026: Kullanıcı ek PostgreSQL/Docker kurulumu ve manuel yedek alma adımını istemedi; yedeksiz geçişin geri dönüş riskinin arttığı açıklandıktan sonra testlerden sonra uygulama yolunu kabul etti. Gerçek Supabase CI çalışmasının tüm adımlarının yeşil olduğu kullanıcı tarafından bildirildi; hazırlık kontrolünde 1 yönetici, 1 imalat sorumlusu, 1 operatör, 4 sipariş, 7 kalem, 205 ürün ve uyumlu temel izinler görüldü. Yedek alındığı veya canlı SQL'in tamamlandığı varsayılmaz.
 
 Bu geçişte sıralama: yalnızca 0004 SQL dosyası kullanıcı tarafından mevcut projede uygulanır; sonuç alındıktan sonra hazırlanmış uygulama sürümü main'e gönderilir. Vercel API girişinde yeni akış varsayılan açık hazırlanmıştır; bu yüzden ek bir ortam değişkeni girişi gerekmez. Önceden açıkça `ORDER_WORKFLOW_ENABLED=0` tanımlanmışsa kaldırılması/değiştirilmesi gerekir. Bu Vercel varsayılanı yerel sunucunun kapalı varsayılanını değiştirmez. Geliştirme dalının Vercel dağıtımı kapalıdır. SQL sonucu beklenirken main'e yayın yapılmaz.
+
+## Kurulum doğrulama düzeltmesi
+
+23 Ekim 2026: Kullanıcının canlı SQL çıktısında order_images, orders ilişkisi, production_notifications ve edit_order kontrollerinin tamamı false çıktı. Önceki genel Success mesajı tam kurulum kanıtı değildi. Eski API akışını geri getiren 3f95c89 sürümü main dalına gönderildi; yeni akış hosted kurulumun sonucu doğrulanana kadar Vercel girişinde kapalıdır.
+
+Yeni uygulayıcı `supabase/releases/order_workflow.sql`, incelemedeki kanonik 0004 migration içeriğini tek bir atomik DO işleminde çalıştırır. Sabit Base64 yükünün kaynağı ve SHA256 özeti dosya başlığındadır; dışarıdan SQL indirmez. Üretim aracı `scripts/build-production-update.mjs` ile tekrar üretilebilir. Yarım kopyalanan son kontrol sorgusu tek başına çalıştırılsa da eksik kurulumda KURULUM_EKSIK döner. Hata durumunda tüm kurulum geri alınır. Bu davranış, tekrar uygulama ve gerçek Supabase CI kontrolü kapsamındadır.
+
+Yeni özellikler yalnızca durum=GUNCELLEME_TAMAMLANDI ve tüm hazırlık sütunları true olan sonuç görüldükten sonra yeniden açılır. Genel başarılı mesajı veya yalnızca bir tablo kontrolü yeterli değildir.
