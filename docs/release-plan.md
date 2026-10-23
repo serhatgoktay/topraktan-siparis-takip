@@ -42,3 +42,9 @@ Migration transaction içinde çalışır; işlem hatasında transaction tamamen
 Hazır: kaynak kod, 0004 migration, yerel PostgreSQL/RLS/RPC testleri, tarayıcı akışı, ekran önizlemesi ve örnek Excel, salt okunur ön kontrol.
 
 Bekleyen: canlı ön kontrol çıktısı; doğrulanmış yedek; izole gerçek Supabase/Auth/PostgREST kabul kontrolü; ardından ayrıca yayın kararı. Canlı veritabanında değişiklik ve canlı dağıtım yapılmamıştır.
+
+## Kullanıcının seçtiği geçiş yolu
+
+23 Ekim 2026: Kullanıcı ek PostgreSQL/Docker kurulumu ve manuel yedek alma adımını istemedi; yedeksiz geçişin geri dönüş riskinin arttığı açıklandıktan sonra testlerden sonra uygulama yolunu kabul etti. Gerçek Supabase CI çalışmasının tüm adımlarının yeşil olduğu kullanıcı tarafından bildirildi; hazırlık kontrolünde 1 yönetici, 1 imalat sorumlusu, 1 operatör, 4 sipariş, 7 kalem, 205 ürün ve uyumlu temel izinler görüldü. Yedek alındığı veya canlı SQL'in tamamlandığı varsayılmaz.
+
+Bu geçişte sıralama: yalnızca 0004 SQL dosyası kullanıcı tarafından mevcut projede uygulanır; sonuç alındıktan sonra hazırlanmış uygulama sürümü main'e gönderilir. Vercel API girişinde yeni akış varsayılan açık hazırlanmıştır; bu yüzden ek bir ortam değişkeni girişi gerekmez. Önceden açıkça `ORDER_WORKFLOW_ENABLED=0` tanımlanmışsa kaldırılması/değiştirilmesi gerekir. Bu Vercel varsayılanı yerel sunucunun kapalı varsayılanını değiştirmez. Geliştirme dalının Vercel dağıtımı kapalıdır. SQL sonucu beklenirken main'e yayın yapılmaz.
