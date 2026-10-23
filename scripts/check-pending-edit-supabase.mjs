@@ -1,0 +1,36 @@
+import {readFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {randomBytes} from 'node:crypto';
+import assert from 'node:assert/strict';
+import {createApp} from '../supabase-server.js';
+import {pendingSnapshot} from '../public/pending-edit.js';
+const c=JSON.parse(readFileSync(process.env.LOCAL_SUPABASE_STATUS_FILE,'utf8')),local=new URL(c.API_URL);
+assert.ok(['127.0.0.1','localhost','[::1]'].includes(local.hostname),'Hosted Supabase is forbidden');assert.equal(local.protocol,'http:');assert.ok(c.ANON_KEY&&c.SERVICE_ROLE_KEY);
+const accounts=new Map(),password='Local-'+randomBytes(24).toString('base64url');
+for(const [name,role,unit] of [['admin','admin',null],['manager','manager',null],['bahce','operator',1],['park','operator',2]]){
+ const r=await fetch(new URL('/auth/v1/admin/users',local),{method:'POST',headers:{apikey:c.ANON_KEY,Authorization:`Bearer ${c.SERVICE_ROLE_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({email:`${name}@pending-test.invalid`,password,email_confirm:true,user_metadata:{name}})});assert.equal(r.status,200);const raw=await r.json(),u=raw.user||raw;assert.match(u.id,/^[0-9a-f-]{36}$/i);accounts.set(name,{id:u.id,role,unit});
+}
+const sql=[...accounts].map(([name,u])=>`update public.profiles set username='${name}',role='${u.role}',unit_id=${u.unit??'null'},active=true where id='${u.id}'::uuid;`).join('\n');
+function postgres(input){return execFileSync('docker',['exec','-i','supabase_db_topraktan-pending-ci','psql','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1'],{input,encoding:'utf8',stdio:['pipe','pipe','pipe']});}
+postgres(sql);
+const {server}=createApp({url:'https://pending-local.invalid',publishableKey:c.ANON_KEY,serviceKey:c.SERVICE_ROLE_KEY,secureCookies:false,fetchImpl:(input,opts)=>{const u=new URL(input);assert.equal(u.origin,'https://pending-local.invalid');return fetch(new URL(u.pathname+u.search,local),opts);}});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.1:${server.address().port}/api/`,cookies={};
+async function req(who,path,body){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{...(cookies[who]?{Cookie:cookies[who]}:{}),'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json(),cookie:r.headers.getSetCookie().map(s=>s.split(';')[0]).join('; ')};}
+try{
+ for(const name of accounts.keys()){const r=await req('', 'login',{username:name,password});assert.equal(r.status,200,JSON.stringify(r.data));cookies[name]=r.cookie;}
+ assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:false});
+ const created=await req('bahce','orders',{delivery:'2099-12-12',items:[{name:'Test pasta',quantity:10,measure:'adet',category:'Pastalar',subcategory:'Cheesecake',servings:8}]});assert.equal(created.status,201,JSON.stringify(created.data));
+ const id=created.data.id;const before=(await req('bahce','orders')).data.find(o=>o.id===id);
+ assert.equal((await req('bahce','products')).status,200);assert.equal((await req('park','orders')).data.length,0);
+ console.log('PASS: real Supabase without new SQL: login, orders, products and branch scope');
+ const output=postgres(readFileSync(process.env.PENDING_EDIT_SQL_FILE,'utf8'));assert.match(output,/DUZENLEME_HAZIR/);
+ let ready=false;for(let attempt=0;attempt<30;attempt++){ready=(await req('bahce','capabilities')).data.pendingOrderEditing===true;if(ready)break;await new Promise(r=>setTimeout(r,200));}assert.equal(ready,true);
+ const patch={expected:pendingSnapshot(before),delivery:'2099-12-13',note:'Yeni not',reason:'Miktar düzeltildi',quantities:before.items.map(i=>({id:i.id,quantity:7}))};
+ assert.equal((await req('park',`orders/${id}/edit-pending`,patch)).status,404);assert.equal((await req('manager',`orders/${id}/edit-pending`,patch)).status,403);
+ const saved=await req('bahce',`orders/${id}/edit-pending`,patch);assert.equal(saved.status,200,JSON.stringify(saved.data));
+ assert.equal((await req('bahce',`orders/${id}/edit-pending`,patch)).status,409);
+ const after=(await req('bahce','orders')).data.find(o=>o.id===id);assert.equal(after.items[0].quantity,7);assert.equal(after.items[0].id,before.items[0].id);assert.ok(after.events.some(e=>e.note.includes('Miktar düzeltildi')));
+ assert.equal((await req('manager',`orders/${id}/status`,{status:'approved'})).status,200);
+ assert.equal((await req('admin',`orders/${id}/edit-pending`,{...patch,expected:pendingSnapshot(after)})).status,409);
+ console.log('PASS: real Supabase after SQL: pending edits, history, stale conflict and approval lock; existing manager approval preserved');
+}finally{await new Promise(r=>server.close(r));}

@@ -2,7 +2,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-export async function fixture({catalogMigration=true,usernameMigration=true}={}) {
+export async function fixture({catalogMigration=true,usernameMigration=true,pendingEditingMigration=false}={}) {
  const db = new PGlite();
  await db.exec(`create role anon; create role authenticated; create role service_role; create schema auth;
  create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb not null default '{}');
@@ -11,6 +11,7 @@ export async function fixture({catalogMigration=true,usernameMigration=true}={})
  await db.exec(readFileSync(new URL('../supabase/migrations/202610210001_initial.sql',import.meta.url),'utf8'));
  if(catalogMigration)await db.exec(readFileSync(new URL('../supabase/migrations/202610210002_catalog_servings.sql',import.meta.url),'utf8'));
  if(usernameMigration)await db.exec(readFileSync(new URL('../supabase/migrations/202610210003_usernames.sql',import.meta.url),'utf8'));
+ if(pendingEditingMigration)await db.exec(readFileSync(new URL('../supabase/migrations/202610230005_pending_order_edit.sql',import.meta.url),'utf8'));
  let queue = Promise.resolve();
  function sql(id,query,params=[]) {
   const op=queue.then(async()=>{
@@ -58,10 +59,11 @@ export async function fixture({catalogMigration=true,usernameMigration=true}={})
    if(!id)return json({message:'Missing JWT'},401);
    const name=u.pathname.split('/').at(-1);
    if(u.pathname.startsWith('/rest/v1/rpc/')){
-    const spec={admin_set_profile_v2:['p_user_id','p_name','p_role','p_unit_id','p_active','p_username'],save_product_v2:['p_name','p_measure','p_category','p_subcategory','p_id','p_active'],create_order_v2:['p_unit_id','p_delivery','p_items','p_note'],save_product:['p_name','p_measure','p_id','p_active'],create_order:['p_unit_id','p_delivery','p_items','p_note'],change_order_status:['p_order_id','p_status','p_note'],admin_set_profile:['p_user_id','p_name','p_role','p_unit_id','p_active']}[name];
+    if(['pending_order_editing_ready','edit_pending_order'].includes(name)&&!pendingEditingMigration)return json({code:'PGRST202',message:'Missing function'},404);
+    const spec={pending_order_editing_ready:[],edit_pending_order:['p_order_id','p_expected','p_delivery','p_note','p_quantities','p_reason'],admin_set_profile_v2:['p_user_id','p_name','p_role','p_unit_id','p_active','p_username'],save_product_v2:['p_name','p_measure','p_category','p_subcategory','p_id','p_active'],create_order_v2:['p_unit_id','p_delivery','p_items','p_note'],save_product:['p_name','p_measure','p_id','p_active'],create_order:['p_unit_id','p_delivery','p_items','p_note'],change_order_status:['p_order_id','p_status','p_note'],admin_set_profile:['p_user_id','p_name','p_role','p_unit_id','p_active']}[name];
     if(!spec)return json({code:'PGRST202',message:'Missing function'},404);
-    const params=spec.map(k=>k==='p_items'?JSON.stringify(body[k]):body[k]);
-    const casts={admin_set_profile_v2:['uuid','text','text','smallint','boolean','text'],create_order_v2:['smallint','date','jsonb','text'],save_product_v2:['text','text','text','text','bigint','boolean'],create_order:['smallint','date','jsonb','text'],save_product:['text','text','bigint','boolean'],change_order_status:['bigint','text','text'],admin_set_profile:['uuid','text','text','smallint','boolean']}[name];
+    const params=spec.map(k=>['p_items','p_expected','p_quantities'].includes(k)?JSON.stringify(body[k]):body[k]);
+    const casts={pending_order_editing_ready:[],edit_pending_order:['bigint','jsonb','date','text','jsonb','text'],admin_set_profile_v2:['uuid','text','text','smallint','boolean','text'],create_order_v2:['smallint','date','jsonb','text'],save_product_v2:['text','text','text','text','bigint','boolean'],create_order:['smallint','date','jsonb','text'],save_product:['text','text','bigint','boolean'],change_order_status:['bigint','text','text'],admin_set_profile:['uuid','text','text','smallint','boolean']}[name];
     const r=await sql(id,`select public.${name}(${casts.map((c,i)=>'$'+(i+1)+'::'+c).join(',')}) as result`,params);
     return json(r.rows[0].result);
    }
@@ -80,7 +82,7 @@ export async function fixture({catalogMigration=true,usernameMigration=true}={})
    // A deliberately smaller API cap verifies the adapter never truncates reports.
    if(u.searchParams.has('offset')){const offset=Number(u.searchParams.get('offset'));rows=rows.slice(offset,offset+2);}
    return json(rows);
-  }catch(e){return json({code:e.code||'P0001',message:e.message},e.code==='42501'?403:400);}
+  }catch(e){return json({code:e.code||'P0001',message:e.message},e.code==='42501'?403:e.code==='PT409'?409:400);}
  }
  return {fetchImpl,db,sql,accounts,access,refresh,calls,disabled,close:async()=>{await queue;await db.close();}};
 }

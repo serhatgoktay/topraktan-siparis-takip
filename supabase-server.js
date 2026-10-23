@@ -11,6 +11,7 @@ const files = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/catalog.js': ['catalog.js', 'text/javascript; charset=utf-8'],
+  '/pending-edit.js': ['pending-edit.js', 'text/javascript; charset=utf-8'],
   '/dates.js': ['dates.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
   '/logo.png': ['logo.png', 'image/png'],
@@ -60,7 +61,7 @@ export function createApp({
   const base = url.replace(/\/$/, '');
   if (new URL(base).protocol !== 'https:') throw error('Supabase bağlantısı HTTPS kullanmalı.');
   const attempts = new Map();
-  async function remote(path, { token, body, method = body === undefined ? 'GET' : 'POST', privileged = false } = {}) {
+  async function remote(path, { token, body, method = body === undefined ? 'GET' : 'POST', privileged = false, optional = false } = {}) {
     if (privileged && !serviceKey) throw error('Kullanıcı adıyla giriş ve hesap yönetimi için sunucu ayarlarında SUPABASE_SERVICE_ROLE_KEY tanımlanmalı.', 503);
     let response;
     try {
@@ -83,6 +84,7 @@ export function createApp({
     try { data = text ? JSON.parse(text) : null; }
     catch { throw error('Supabase beklenmeyen bir yanıt verdi.', 502); }
     if (!response.ok) {
+      if (optional && data?.code === 'PGRST202') return null;
       const message = data?.message || data?.msg || data?.error_description || 'İşlem tamamlanamadı.';
       if (privileged && [401, 403].includes(response.status)) throw error('Sunucunun kullanıcı hesabı bağlantısı doğrulanamadı. Yönetici sunucu ayarlarını kontrol etmeli.', 503);
       if (data?.code === '42501' || response.status === 403) throw error('Bu işlem için yetkiniz yok.', 403);
@@ -91,6 +93,8 @@ export function createApp({
       if (/email not confirmed/i.test(message)) throw error('E-posta adresi henüz doğrulanmamış.', 401);
       if (response.status === 429) throw error('Çok fazla deneme yapıldı. Lütfen daha sonra tekrar deneyin.', 429);
       if (data?.code === 'PGRST202' && (path.includes('resolve_login_username') || path.includes('admin_set_profile_v2'))) throw error('Kullanıcı adı güncellemesi eksik. Supabase kullanıcı adı SQL güncellemesini çalıştırın.', 503);
+      if (data?.code === 'PT409') throw error(message, 409);
+      if (data?.code === 'PGRST202' && path.includes('edit_pending_order')) throw error('Sipariş düzenleme henüz etkinleştirilmemiş.', 503);
       if (data?.code === '42703') throw error('Veritabanı güncellemesi eksik. Supabase SQL güncellemelerini kontrol edin.', 503);
       if (data?.code === 'PGRST202') throw error('Supabase kategori güncellemesi eksik. Kategori güncelleme SQL dosyasını çalıştırın.', 503);
       if (data?.code === '23505') throw error('Bu kayıt zaten mevcut.');
@@ -226,6 +230,10 @@ export function createApp({
         return send({ ok: true });
       }
       const { token, user } = await authenticate(req, res);
+      if (path === '/api/capabilities' && req.method === 'GET') {
+        const ready=await remote('/rest/v1/rpc/pending_order_editing_ready', {token,body:{},optional:true});
+        return send({pendingOrderEditing:ready===true});
+      }
       if (path === '/api/me' && req.method === 'GET') return send(user);
       if (path === '/api/reports/export' && req.method === 'GET') {
         const filter = reportFilters(requestURL.searchParams);
@@ -253,6 +261,16 @@ export function createApp({
           p_delivery: body.delivery, p_items: body.items, p_note: body.note || '',
         } });
         return send({ id }, 201);
+      }
+      const editMatch=path.match(/^\/api\/orders\/(\d+)\/edit-pending$/);
+      if(editMatch && req.method==='POST'){
+        if(user.role!=='admin' && !(user.role==='operator' && user.unit!=='İmalat')) throw error('Sipariş düzenleme yetkiniz yok.',403);
+        const current=(await ordersFor(token)).find(o=>Number(o.id)===Number(editMatch[1]));
+        if(!current || user.role!=='admin' && current.unit_id!==user.unit_id) throw error('Sipariş bulunamadı.',404);
+        if(current.status!=='pending') throw error('Sipariş artık onay beklemiyor. Listeyi yenileyin.',409);
+        if(typeof body.delivery!=='string'||typeof body.note!=='string'||typeof body.reason!=='string'||!Array.isArray(body.quantities)||!body.expected)throw error('Düzenleme bilgileri eksik.');
+        await remote('/rest/v1/rpc/edit_pending_order',{token,body:{p_order_id:Number(editMatch[1]),p_expected:body.expected,p_delivery:body.delivery,p_note:body.note,p_quantities:body.quantities,p_reason:body.reason}});
+        return send({ok:true});
       }
       const statusMatch = path.match(/^\/api\/orders\/(\d+)\/status$/);
       if (statusMatch && req.method === 'POST') {

@@ -1,0 +1,47 @@
+name: Pending order edit compatibility
+on:
+  push:
+    branches: [feature/pending-order-edit]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.75.0
+      - name: Start baseline Supabase without the optional SQL
+        run: |
+          supabase init
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('supabase/config.toml')
+          p.write_text(re.sub(r'^project_id = .*$', 'project_id = "topraktan-pending-ci"', p.read_text(),flags=re.M))
+          PY
+          mv supabase/migrations/202610230005_pending_order_edit.sql "$RUNNER_TEMP/pending-edit.sql"
+          supabase start -x studio,imgproxy,inbucket,realtime,storage-api,edge-runtime,logflare,vector,supavisor
+          umask 077
+          supabase status -o json > "$RUNNER_TEMP/local-status.json"
+      - name: Verify before and after the optional SQL
+        env:
+          LOCAL_SUPABASE_STATUS_FILE: ${{ runner.temp }}/local-status.json
+          PENDING_EDIT_SQL_FILE: ${{ runner.temp }}/pending-edit.sql
+        run: node scripts/check-pending-edit-supabase.mjs
+      - name: Stop disposable local Supabase
+        if: always()
+        run: |
+          if [ -f supabase/config.toml ]; then
+            supabase stop --no-backup || true
+          fi

@@ -9,7 +9,7 @@
     "test": "node --test",
     "start:sqlite": "node server.js",
     "setup:sqlite": "bash scripts/setup.sh",
-    "build": "node --check supabase-server.js && node --check public/app.js"
+    "build": "node --check supabase-server.js && node --check public/app.js && node --check public/pending-edit.js"
   },
   "engines": {
     "node": ">=24"
