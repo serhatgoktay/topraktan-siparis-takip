@@ -6,3 +6,5 @@ progress.bar{border:0;appearance:none;height:8px;border-radius:5px;background:#f
 .export-actions{display:flex;align-items:center;gap:10px}@media(max-width:560px){.export-actions{gap:4px}.export-actions .primary{font-size:10px;padding:9px}.export-actions .text-btn{font-size:9px}}
 
 .edit-quantity{width:110px;max-width:100%;min-width:80px}
+
+.pending-removed td:first-child{text-decoration:line-through;opacity:.55}.pending-removed input{opacity:.5}#pending-new-items{margin:16px 0}#pending-add-item{margin-bottom:16px}

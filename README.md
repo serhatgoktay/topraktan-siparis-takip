@@ -113,3 +113,11 @@ Onay bekleyen siparişte yönetici veya ilgili şube operatörü teslim tarihini
 Bu özellik [202610230005_pending_order_edit.sql](supabase/migrations/202610230005_pending_order_edit.sql) içindeki yalnızca iki yeni fonksiyonu kullanır. Yeni tablo, kolon, ilişki, rol veya RLS politikası gerektirmez. SQL uygulanmamışken sipariş/katalog/giriş/rapor ekranları çalışmaya devam eder; `/api/capabilities` düzenlemeyi kapalı bildirir ve düğme görünmez. Kurulum sonucu `DUZENLEME_HAZIR` olmalı; genel Success mesajı kurulum kanıtı değildir. Eski büyük sipariş/iptal/görsel güncelleme dosyaları bu ekleme için kullanılmaz.
 
 Testler: `node --test tests/pending-edit.test.js` sunucusuz Vercel işleyicisini doğrudan ve PostgreSQL/RLS üzerinde doğrular. `CHROMIUM_PATH=/usr/bin/chromium node scripts/check-pending-edit-browser.mjs` isteğe bağlı Playwright kurulumu olan ortamda SQL yokken ve varken tarayıcı akışını kontrol eder. GitHub Actions **Pending order edit compatibility** görevi geçici gerçek Supabase'de önce eski kurulumla, sonra yalnızca bu SQL eklemesiyle test eder; hosted projenin anahtarlarını kullanmaz.
+
+### Onay öncesi ürün ekleme ve çıkarma
+
+005 güncellemesinden sonra [202610230006_pending_order_items.sql](supabase/migrations/202610230006_pending_order_items.sql) uygulanır. Sonuç `URUN_DUZENLEME_HAZIR` olmalıdır. Bu ekleme yeni tablo, kolon, rol veya RLS politikası oluşturmaz; önceki düzenleme işlevini korur. SQL eksikken mevcut miktar düzenleme çalışır, ürün ekleme/çıkarma düğmeleri kapalı kalır.
+
+Onay bekleyen siparişe katalog veya özel ürün eklenebilir. Çıkarılan kalem kaydetmeden önce geri alınabilir; siparişte en az bir ürün bulunmalıdır. Kalan kalemlerin kimlikleri ve ürün bilgileri korunur. Çıkarılan kalemlerin bilgileri dahil eski/yeni ürün listesi ve gerekçe mevcut işlem geçmişine kaydedilir. Yetkiler önceki düzenleme ile aynıdır; onaylanmış veya başka şubeye ait sipariş değiştirilemez.
+
+`tests/pending-items.test.js` eski SQL ile uyumluluğu, ekleme/çıkarma, miktar ve kişi sayısı doğrulamasını, yetkileri, eşzamanlı değişiklikleri ve hatada işlemin geri alınmasını kontrol eder. Tarayıcı kontrolü SQL yokken, yalnız miktar düzenleme açıkken ve ürün düzenleme açıkken çalışır.

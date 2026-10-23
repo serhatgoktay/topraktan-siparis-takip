@@ -1,7 +1,7 @@
 name: Pending order edit compatibility
 on:
   push:
-    branches: [feature/pending-order-edit]
+    branches: [feature/pending-order-edit, feature/pending-order-items]
   workflow_dispatch:
 permissions:
   contents: read
@@ -31,12 +31,14 @@ jobs:
           p.write_text(re.sub(r'^project_id = .*$', 'project_id = "topraktan-pending-ci"', p.read_text(),flags=re.M))
           PY
           mv supabase/migrations/202610230005_pending_order_edit.sql "$RUNNER_TEMP/pending-edit.sql"
+          mv supabase/migrations/202610230006_pending_order_items.sql "$RUNNER_TEMP/pending-items.sql"
           supabase start -x studio,imgproxy,inbucket,realtime,storage-api,edge-runtime,logflare,vector,supavisor
           umask 077
           supabase status -o json > "$RUNNER_TEMP/local-status.json"
       - name: Verify before and after the optional SQL
         env:
           LOCAL_SUPABASE_STATUS_FILE: ${{ runner.temp }}/local-status.json
+          PENDING_ITEMS_SQL_FILE: ${{ runner.temp }}/pending-items.sql
           PENDING_EDIT_SQL_FILE: ${{ runner.temp }}/pending-edit.sql
         run: node scripts/check-pending-edit-supabase.mjs
       - name: Stop disposable local Supabase

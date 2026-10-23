@@ -232,7 +232,8 @@ export function createApp({
       const { token, user } = await authenticate(req, res);
       if (path === '/api/capabilities' && req.method === 'GET') {
         const ready=await remote('/rest/v1/rpc/pending_order_editing_ready', {token,body:{},optional:true});
-        return send({pendingOrderEditing:ready===true});
+        const itemsReady=await remote('/rest/v1/rpc/pending_order_items_editing_ready',{token,body:{},optional:true});
+        return send({pendingOrderEditing:ready===true,pendingOrderItemsEditing:itemsReady===true});
       }
       if (path === '/api/me' && req.method === 'GET') return send(user);
       if (path === '/api/reports/export' && req.method === 'GET') {
@@ -268,8 +269,10 @@ export function createApp({
         const current=(await ordersFor(token)).find(o=>Number(o.id)===Number(editMatch[1]));
         if(!current || user.role!=='admin' && current.unit_id!==user.unit_id) throw error('Sipariş bulunamadı.',404);
         if(current.status!=='pending') throw error('Sipariş artık onay beklemiyor. Listeyi yenileyin.',409);
-        if(typeof body.delivery!=='string'||typeof body.note!=='string'||typeof body.reason!=='string'||!Array.isArray(body.quantities)||!body.expected)throw error('Düzenleme bilgileri eksik.');
-        await remote('/rest/v1/rpc/edit_pending_order',{token,body:{p_order_id:Number(editMatch[1]),p_expected:body.expected,p_delivery:body.delivery,p_note:body.note,p_quantities:body.quantities,p_reason:body.reason}});
+        if(typeof body.delivery!=='string'||typeof body.note!=='string'||typeof body.reason!=='string'||(!Array.isArray(body.quantities)&&!Array.isArray(body.items))||!body.expected)throw error('Düzenleme bilgileri eksik.');
+        const common={p_order_id:Number(editMatch[1]),p_expected:body.expected,p_delivery:body.delivery,p_note:body.note,p_reason:body.reason};
+        if(Array.isArray(body.items))await remote('/rest/v1/rpc/edit_pending_order_v2',{token,body:{...common,p_items:body.items}});
+        else await remote('/rest/v1/rpc/edit_pending_order',{token,body:{...common,p_quantities:body.quantities}});
         return send({ok:true});
       }
       const statusMatch = path.match(/^\/api\/orders\/(\d+)\/status$/);

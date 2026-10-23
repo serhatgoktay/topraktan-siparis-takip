@@ -2,13 +2,33 @@ import {calendarDate} from './dates.js';
 export function pendingSnapshot(order){
  return {delivery:calendarDate(order.delivery),note:order.note||'',items:order.items.map(i=>({id:Number(i.id),quantity:Number(i.quantity)})).sort((a,b)=>a.id-b.id)};
 }
-export function showPendingEdit(order,{modal,esc,num,date,api,load,toast}){
- const d=modal(`Sipariş #${order.id} · Düzenle`,`<form id="pending-edit-form"><p class="muted">${esc(order.unit)} · Onay bekliyor</p><label>Teslim tarihi<input type="date" name="delivery" value="${calendarDate(order.delivery)}" required></label><div class="table-wrap"><table><thead><tr><th>ÜRÜN</th><th>MİKTAR</th><th>BİRİM</th></tr></thead><tbody>${order.items.map(i=>`<tr><td><strong>${esc(i.name)}</strong>${i.servings?`<small>${i.servings} kişilik</small>`:''}</td><td><input class="edit-quantity" type="number" data-item="${i.id}" aria-label="${esc(i.name)} miktarı${i.servings?' '+i.servings+' kişilik':''}" min="${i.measure==='kg'?'0.001':'1'}" step="${i.measure==='kg'?'0.001':'1'}" max="1000000" value="${i.quantity}" required></td><td>${esc(i.measure)}</td></tr>`).join('')}</tbody></table></div><label>Sipariş notu<textarea name="note" maxlength="2000">${esc(order.note||'')}</textarea></label><label>Düzenleme gerekçesi<textarea name="reason" required maxlength="500" placeholder="Değişiklik nedenini yazın"></textarea></label><p class="muted small">Değişiklikler işlem geçmişine kaydedilir. Sipariş onaylanırsa düzenleme kaydedilemez.</p><p class="form-error" role="alert"></p><div class="modal-actions"><button class="primary" type="submit">Değişiklikleri kaydet</button></div></form>`,true);
+export function showPendingEdit(order,{modal,esc,num,date,api,load,toast,allowItems=false,itemRow,bindItem}){
+ const d=modal(`Sipariş #${order.id} · Düzenle`,`<form id="pending-edit-form"><p class="muted">${esc(order.unit)} · Onay bekliyor</p><label>Teslim tarihi<input type="date" name="delivery" value="${calendarDate(order.delivery)}" required></label><div class="table-wrap"><table><thead><tr><th>ÜRÜN</th><th>MİKTAR</th><th>BİRİM</th>${allowItems?'<th></th>':''}</tr></thead><tbody>${order.items.map(i=>`<tr class="pending-existing-row" data-existing="${i.id}"><td><strong>${esc(i.name)}</strong>${i.servings?`<small>${i.servings} kişilik</small>`:''}</td><td><input class="edit-quantity" type="number" data-item="${i.id}" aria-label="${esc(i.name)} miktarı${i.servings?' '+i.servings+' kişilik':''}" min="${i.measure==='kg'?'0.001':'1'}" step="${i.measure==='kg'?'0.001':'1'}" max="1000000" value="${i.quantity}" required></td><td>${esc(i.measure)}</td>${allowItems?`<td><button type="button" class="text-btn" data-remove-existing="${i.id}" aria-label="${esc(i.name)} ürününü çıkar">Çıkar</button></td>`:''}</tr>`).join('')}</tbody></table></div>${allowItems?'<div id="pending-new-items"></div><button class="secondary" type="button" id="pending-add-item">+ Ürün ekle</button><p class="muted small">Çıkarılan ürünler işlem geçmişinde korunur. Siparişte en az bir ürün kalmalıdır.</p>':''}<label>Sipariş notu<textarea name="note" maxlength="2000">${esc(order.note||'')}</textarea></label><label>Düzenleme gerekçesi<textarea name="reason" required maxlength="500" placeholder="Değişiklik nedenini yazın"></textarea></label><p class="muted small">Değişiklikler işlem geçmişine kaydedilir. Sipariş onaylanırsa düzenleme kaydedilemez.</p><p class="form-error" role="alert"></p><div class="modal-actions"><button class="primary" type="submit">Değişiklikleri kaydet</button></div></form>`,true);
+ if(allowItems){
+  d.querySelectorAll('[data-remove-existing]').forEach(button=>button.onclick=()=>{
+   const row=button.closest('tr'),removed=row.dataset.removed!=='true';row.dataset.removed=String(removed);row.classList.toggle('pending-removed',removed);row.querySelector('[data-item]').disabled=removed;
+   button.textContent=removed?'Geri al':'Çıkar';button.setAttribute('aria-label',removed?'Ürünü geri al':order.items.find(i=>i.id===Number(button.dataset.removeExisting)).name+' ürününü çıkar');
+  });
+  d.querySelector('#pending-add-item').onclick=()=>{
+   const count=d.querySelectorAll('.pending-existing-row:not([data-removed="true"])').length+d.querySelectorAll('#pending-new-items .item-row').length;
+   if(count>=100){d.querySelector('.form-error').textContent='En fazla 100 kalem eklenebilir.';return;}
+   const container=d.querySelector('#pending-new-items');container.insertAdjacentHTML('beforeend',itemRow());const row=container.lastElementChild;bindItem(row,d);row.querySelector('.remove-item').onclick=()=>row.remove();
+  };
+ }
  d.querySelector('form').onsubmit=async e=>{
   e.preventDefault();const button=d.querySelector('button[type=submit]');button.disabled=true;
   try{
    const form=new FormData(e.target);
-   await api(`orders/${order.id}/edit-pending`,{expected:pendingSnapshot(order),delivery:form.get('delivery'),note:form.get('note'),reason:form.get('reason'),quantities:[...d.querySelectorAll('[data-item]')].map(el=>({id:Number(el.dataset.item),quantity:Number(el.value)}))});
+   const existing=[...d.querySelectorAll('[data-item]')].filter(el=>!el.disabled).map(el=>({id:Number(el.dataset.item),quantity:Number(el.value)}));
+   const payload={expected:pendingSnapshot(order),delivery:form.get('delivery'),note:form.get('note'),reason:form.get('reason')};
+   if(allowItems){
+    const added=[...d.querySelectorAll('#pending-new-items .item-row')].map(row=>{
+     const get=n=>row.querySelector(`[name="${n}"]`),choice=get('servings-choice');
+     return {product_id:get('product').value||null,name:get('custom').value,quantity:Number(get('quantity').value),measure:get('measure').value,category:get('category').value||null,subcategory:get('subcategory').disabled?null:get('subcategory').value||null,servings:choice.disabled?null:choice.value==='other'?Number(get('servings-other').value):Number(choice.value)};
+    });
+    payload.items=[...existing,...added];if(!payload.items.length)throw Error('Siparişte en az bir ürün kalmalı. Yeni ürün ekleyin veya çıkarılan ürünü geri alın.');
+   }else payload.quantities=existing;
+   await api(`orders/${order.id}/edit-pending`,payload);
    d.close();await load();toast('Sipariş güncellendi');
   }catch(err){d.querySelector('.form-error').textContent=err.message;}finally{button.disabled=false;}
  };

@@ -18,7 +18,7 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.
 async function req(who,path,body){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{...(cookies[who]?{Cookie:cookies[who]}:{}),'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json(),cookie:r.headers.getSetCookie().map(s=>s.split(';')[0]).join('; ')};}
 try{
  for(const name of accounts.keys()){const r=await req('', 'login',{username:name,password});assert.equal(r.status,200,JSON.stringify(r.data));cookies[name]=r.cookie;}
- assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:false});
+ assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:false,pendingOrderItemsEditing:false});
  const created=await req('bahce','orders',{delivery:'2099-12-12',items:[{name:'Test pasta',quantity:10,measure:'adet',category:'Pastalar',subcategory:'Cheesecake',servings:8}]});assert.equal(created.status,201,JSON.stringify(created.data));
  const id=created.data.id;const before=(await req('bahce','orders')).data.find(o=>o.id===id);
  assert.equal((await req('bahce','products')).status,200);assert.equal((await req('park','orders')).data.length,0);
@@ -33,4 +33,14 @@ try{
  assert.equal((await req('manager',`orders/${id}/status`,{status:'approved'})).status,200);
  assert.equal((await req('admin',`orders/${id}/edit-pending`,{...patch,expected:pendingSnapshot(after)})).status,409);
  console.log('PASS: real Supabase after SQL: pending edits, history, stale conflict and approval lock; existing manager approval preserved');
+ const itemsOutput=postgres(readFileSync(process.env.PENDING_ITEMS_SQL_FILE,'utf8'));assert.match(itemsOutput,/URUN_DUZENLEME_HAZIR/);
+ let itemsReady=false;for(let attempt=0;attempt<50;attempt++){itemsReady=(await req('bahce','capabilities')).data.pendingOrderItemsEditing===true;if(itemsReady)break;await new Promise(r=>setTimeout(r,200));}assert.equal(itemsReady,true);
+ const created2=await req('bahce','orders',{delivery:'2099-12-12',items:[{name:'Değişecek pasta',quantity:2,measure:'adet',category:'Pastalar',subcategory:'Adet pastalar'}]});assert.equal(created2.status,201);
+ const second=(await req('bahce','orders')).data.find(o=>o.id===created2.data.id);
+ const replacement={expected:pendingSnapshot(second),delivery:second.delivery,note:'',reason:'Yeni ürün talebi',items:[{name:'Yeni çikolata',quantity:1.25,measure:'kg',category:'Çikolatalar'}]};
+ const replaced=await req('bahce',`orders/${second.id}/edit-pending`,replacement);assert.equal(replaced.status,200,JSON.stringify(replaced.data));
+ const edited=(await req('bahce','orders')).data.find(o=>o.id===second.id);assert.equal(edited.items.length,1);assert.equal(edited.items[0].name,'Yeni çikolata');assert.equal(edited.items[0].quantity,1.25);assert.ok(edited.events.some(e=>e.note.includes('Değişecek pasta')));
+ assert.equal((await req('bahce',`orders/${second.id}/edit-pending`,replacement)).status,409);
+ console.log('PASS: real Supabase product add/remove, kg quantity, complete replacement, history and stale protection');
+
 }finally{await new Promise(r=>server.close(r));}
