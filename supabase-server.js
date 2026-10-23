@@ -96,7 +96,7 @@ export function createApp({
       if (data?.code === 'PGRST202' && (path.includes('resolve_login_username') || path.includes('admin_set_profile_v2'))) throw error('Kullanıcı adı güncellemesi eksik. Supabase kullanıcı adı SQL güncellemesini çalıştırın.', 503);
       if (data?.code === 'PT409') throw error(message, 409);
       if (data?.code === 'PGRST202' && path.includes('edit_pending_order')) throw error('Sipariş düzenleme henüz etkinleştirilmemiş.', 503);
-      if (data?.code === 'PGRST202' && /create_order_with_details|get_custom_order_details/.test(path)) throw error('Özel sipariş fotoğraf güncellemesi henüz etkinleştirilmemiş.',503);
+      if (data?.code === 'PGRST202' && /create_order_with_details|get_custom_order_details|create_order_with_item_details|get_order_item_details|get_order_item_photo/.test(path)) throw error('Özel sipariş fotoğraf güncellemesi henüz etkinleştirilmemiş.',503);
       if (data?.code === '42703') throw error('Veritabanı güncellemesi eksik. Supabase SQL güncellemelerini kontrol edin.', 503);
       if (data?.code === 'PGRST202') throw error('Supabase kategori güncellemesi eksik. Kategori güncelleme SQL dosyasını çalıştırın.', 503);
       if (data?.code === '23505') throw error('Bu kayıt zaten mevcut.');
@@ -179,7 +179,7 @@ export function createApp({
         return;
       }
       if (!['GET', 'POST'].includes(req.method)) return send({ error: 'Yöntem desteklenmiyor.' }, 405);
-      const bodyLimit=path==='/api/orders'?1000000:100000;
+      const bodyLimit=path==='/api/orders'||/^\/api\/orders\/\d+\/edit-pending$/.test(path)?3000000:100000;
       let body = {};
       if (req.method === 'POST') {
         const origin = req.headers.origin;
@@ -237,7 +237,8 @@ export function createApp({
         const ready=await remote('/rest/v1/rpc/pending_order_editing_ready', {token,body:{},optional:true});
         const itemsReady=await remote('/rest/v1/rpc/pending_order_items_editing_ready',{token,body:{},optional:true});
         const customReady=await remote('/rest/v1/rpc/custom_order_details_ready',{token,body:{},optional:true});
-        return send({pendingOrderEditing:ready===true,pendingOrderItemsEditing:itemsReady===true,customOrderDetails:customReady===true});
+        const perItemReady=await remote('/rest/v1/rpc/custom_order_item_details_ready',{token,body:{},optional:true});
+        return send({customOrderItemDetails:perItemReady===true,pendingOrderEditing:ready===true,pendingOrderItemsEditing:itemsReady===true,customOrderDetails:customReady===true});
       }
       if (path === '/api/me' && req.method === 'GET') return send(user);
       if (path === '/api/reports/export' && req.method === 'GET') {
@@ -262,13 +263,24 @@ export function createApp({
       if (path === '/api/orders' && req.method === 'GET') return send(await ordersFor(token));
       if (path === '/api/orders' && req.method === 'POST') {
         const details=body.custom_details;
+        const perItem=Array.isArray(body.items)&&body.items.some(i=>i?.custom_details!=null);
+        if(perItem&&details)throw error('Kalem bilgileri ve eski genel açıklama aynı anda gönderilemez.');
         if(details && (typeof details!=='object'||Array.isArray(details)||typeof details.description!=='string'||details.description.length>2000||(details.photo!==null&&typeof details.photo!=='string')))throw error('Özel sipariş açıklamasını ve fotoğrafını kontrol edin.');
-        const id = await remote(details?'/rest/v1/rpc/create_order_with_details':'/rest/v1/rpc/create_order_v2', { token, body: {
+        const id = await remote(perItem?'/rest/v1/rpc/create_order_with_item_details':details?'/rest/v1/rpc/create_order_with_details':'/rest/v1/rpc/create_order_v2', { token, body: {
           p_unit_id: ['admin', 'manager'].includes(user.role) ? unitNames.indexOf(body.unit) + 1 : user.unit_id,
           p_delivery: body.delivery, p_items: body.items, p_note: body.note || '',
           ...(details?{p_description:details.description,p_photo:details.photo}:{}),
         } });
         return send({ id }, 201);
+      }
+      const itemDetailsMatch=path.match(/^\/api\/orders\/(\d+)\/item-details$/);
+      if(itemDetailsMatch&&req.method==='GET')return send(await remote('/rest/v1/rpc/get_order_item_details',{token,body:{p_order_id:Number(itemDetailsMatch[1])}}));
+      const itemPhotoMatch=path.match(/^\/api\/orders\/(\d+)\/custom-item-photo\/(\d+)$/);
+      if(itemPhotoMatch&&req.method==='GET'){
+        const photo=await remote('/rest/v1/rpc/get_order_item_photo',{token,body:{p_order_id:Number(itemPhotoMatch[1]),p_detail_id:Number(itemPhotoMatch[2])}});
+        if(!photo)throw error('Fotoğraf bulunamadı.',404);
+        const bytes=Buffer.from(photo.slice('data:image/jpeg;base64,'.length),'base64');
+        res.writeHead(200,{'Content-Type':'image/jpeg','Content-Length':bytes.length,'Cache-Control':'no-store','Content-Disposition':'inline; filename="ozel-kalem.jpg"','Content-Security-Policy':"default-src 'none'; sandbox"});res.end(bytes);return;
       }
       const customMatch=path.match(/^\/api\/orders\/(\d+)\/(custom-details|custom-photo)$/);
       if(customMatch && req.method==='GET'){
@@ -286,7 +298,7 @@ export function createApp({
         if(current.status!=='pending') throw error('Sipariş artık onay beklemiyor. Listeyi yenileyin.',409);
         if(typeof body.delivery!=='string'||typeof body.note!=='string'||typeof body.reason!=='string'||(!Array.isArray(body.quantities)&&!Array.isArray(body.items))||!body.expected)throw error('Düzenleme bilgileri eksik.');
         const common={p_order_id:Number(editMatch[1]),p_expected:body.expected,p_delivery:body.delivery,p_note:body.note,p_reason:body.reason};
-        if(Array.isArray(body.items))await remote('/rest/v1/rpc/edit_pending_order_v2',{token,body:{...common,p_items:body.items}});
+        if(Array.isArray(body.items))await remote(body.items.some(i=>i?.custom_details!=null)?'/rest/v1/rpc/edit_pending_order_with_item_details':'/rest/v1/rpc/edit_pending_order_v2',{token,body:{...common,p_items:body.items}});
         else await remote('/rest/v1/rpc/edit_pending_order',{token,body:{...common,p_quantities:body.quantities}});
         return send({ok:true});
       }

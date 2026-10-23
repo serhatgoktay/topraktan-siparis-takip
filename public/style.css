@@ -12,3 +12,7 @@ progress.bar{border:0;appearance:none;height:8px;border-radius:5px;background:#f
 .custom-order-fields{margin:20px 0;padding:16px;border:1px solid var(--line,#ddd);border-radius:12px}.custom-order-fields[hidden]{display:none}.photo-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.photo-picker{display:inline-flex;cursor:pointer;position:relative;overflow:hidden;margin:0}.photo-picker input{position:absolute;width:1px;height:1px;opacity:0}.photo-picker:focus-within{outline:2px solid #43785c;outline-offset:3px}.custom-photo-preview{display:block;max-width:100%;max-height:360px;object-fit:contain;margin:12px 0;border-radius:8px}.custom-photo-preview[hidden]{display:none}.custom-description{white-space:pre-wrap;overflow-wrap:anywhere}.custom-photo-link{display:block}
 
 .photo-error{color:var(--danger,#b43a35);font-size:.9rem}
+
+.item-row > [data-custom-order-fields]{grid-column:1 / -1;margin:8px 0;min-width:0}.item-row > .remove-item{grid-column:-2 / -1;grid-row:1}.custom-photo-link img{max-height:240px}[data-item-custom] .custom-description{margin:10px 0;font-size:.9rem}
+
+.custom-photo-link img{width:220px;max-width:100%}

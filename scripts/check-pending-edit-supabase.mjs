@@ -18,7 +18,7 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.
 async function req(who,path,body){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{...(cookies[who]?{Cookie:cookies[who]}:{}),'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json(),cookie:r.headers.getSetCookie().map(s=>s.split(';')[0]).join('; ')};}
 try{
  for(const name of accounts.keys()){const r=await req('', 'login',{username:name,password});assert.equal(r.status,200,JSON.stringify(r.data));cookies[name]=r.cookie;}
- assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:false,pendingOrderItemsEditing:false,customOrderDetails:false});
+ assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:false,pendingOrderItemsEditing:false,customOrderDetails:false,customOrderItemDetails:false});
  const created=await req('bahce','orders',{delivery:'2099-12-12',items:[{name:'Test pasta',quantity:10,measure:'adet',category:'Pastalar',subcategory:'Cheesecake',servings:8}]});assert.equal(created.status,201,JSON.stringify(created.data));
  const id=created.data.id;const before=(await req('bahce','orders')).data.find(o=>o.id===id);
  assert.equal((await req('bahce','products')).status,200);assert.equal((await req('park','orders')).data.length,0);
@@ -50,5 +50,15 @@ try{
  assert.deepEqual((await req('bahce',`orders/${withPhoto.data.id}/custom-details`)).data,{description:'Üzerine Ali yazılsın',hasPhoto:true});assert.equal((await req('park',`orders/${withPhoto.data.id}/custom-details`)).data,null);
  const image=await fetch(base+`orders/${withPhoto.data.id}/custom-photo`,{headers:{Cookie:cookies.bahce}});assert.equal(image.status,200);assert.equal(image.headers.get('content-type'),'image/jpeg');assert.deepEqual(Buffer.from(await image.arrayBuffer()),Buffer.from(photo.split(',')[1],'base64'));
  console.log('PASS: real Supabase special-order description, photo, authenticated image endpoint and branch isolation');
+
+ const itemDetailsOutput=postgres(readFileSync(process.env.ITEM_DETAILS_SQL_FILE,'utf8'));assert.match(itemDetailsOutput,/KALEM_GORSELLERI_HAZIR/);
+ let itemDetailsReady=false;for(let attempt=0;attempt<50;attempt++){itemDetailsReady=(await req('bahce','capabilities')).data.customOrderItemDetails===true;if(itemDetailsReady)break;await new Promise(r=>setTimeout(r,200));}assert.equal(itemDetailsReady,true);
+ const item=(description)=>({name:'Aynı adlı özel pasta',quantity:1,measure:'adet',category:'Pastalar',subcategory:'Adet pastalar',custom_details:{description,photo}});
+ const multiple=await req('bahce','orders',{delivery:'2099-12-12',items:[item('Birinci'),item('İkinci')]});assert.equal(multiple.status,201,JSON.stringify(multiple.data));
+ const multipleOrder=(await req('bahce','orders')).data.find(o=>o.id===multiple.data.id);
+ const multipleDetails=(await req('bahce',`orders/${multiple.data.id}/item-details`)).data;assert.deepEqual(multipleDetails.items.map(d=>[d.item_id,d.description]),multipleOrder.items.map((i,n)=>[i.id,n?'İkinci':'Birinci']));
+ assert.deepEqual((await req('park',`orders/${multiple.data.id}/item-details`)).data,{items:[],legacy:null});
+ const multiImage=await fetch(base+`orders/${multiple.data.id}/custom-item-photo/${multipleDetails.items[1].id}`,{headers:{Cookie:cookies.bahce}});assert.equal(multiImage.status,200);assert.deepEqual(Buffer.from(await multiImage.arrayBuffer()),Buffer.from(photo.split(',')[1],'base64'));
+ console.log('PASS: real Supabase independent per-item descriptions/photos for identical names and branch isolation');
 
 }finally{await new Promise(r=>server.close(r));}

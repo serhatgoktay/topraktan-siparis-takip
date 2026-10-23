@@ -16,7 +16,7 @@ const custom={name:'Çikolata',quantity:1.125,measure:'kg',category:'Çikolatala
 const patch=(o,items)=>({expected:pendingSnapshot(o),delivery:'2099-12-12',note:o.note||'',reason:'Ürün değişikliği',items});
 
 test('Yeni ürün SQLi yokken mevcut miktar düzenlemesi çalışır; ekleme zorlanmaz',async t=>{
- const {req,get}=await app(t,false);assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:true,pendingOrderItemsEditing:false,customOrderDetails:false});
+ const {req,get}=await app(t,false);assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:true,pendingOrderItemsEditing:false,customOrderDetails:false,customOrderItemDetails:false});
  assert.equal((await req('bahce','orders',{delivery:'2099-12-12',items:[cake]})).status,201);const o=await get();
  assert.equal((await req('bahce',`orders/${o.id}/edit-pending`,patch(o,[custom]))).status,503);
  assert.equal((await get()).items[0].id,o.items[0].id);
@@ -24,7 +24,7 @@ test('Yeni ürün SQLi yokken mevcut miktar düzenlemesi çalışır; ekleme zor
 });
 
 test('Ürün ekle/çıkar: katalog snapshotı, özel kg ürün, kalan kimlikler, geçmiş ve yetkiler',async t=>{
- const {req,get,f}=await app(t);assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:true,pendingOrderItemsEditing:true,customOrderDetails:false});
+ const {req,get,f}=await app(t);assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:true,pendingOrderItemsEditing:true,customOrderDetails:false,customOrderItemDetails:false});
  await req('admin','products',{name:'Yeni pasta',measure:'adet',category:'Pastalar',subcategory:'Cheesecake'});const product=(await req('bahce','products')).data[0];
  await req('bahce','orders',{delivery:'2099-12-12',items:[cake,{name:'Çıkarılacak ürün',quantity:1,measure:'tepsi',category:'Tuzlu kurabiyeler'}]});
  const o=await get(),items=[{id:o.items[0].id,quantity:3},{product_id:product.id,name:'Sahte ad',measure:'kg',quantity:1,servings:6},custom];

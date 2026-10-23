@@ -34,7 +34,8 @@
       "feature/pending-order-edit": false,
       "feature/order-revisions-production": false,
       "feature/pending-order-items": false,
-      "feature/custom-order-photo": false
+      "feature/custom-order-photo": false,
+      "fix/custom-details-per-item": false
     }
   }
 }
