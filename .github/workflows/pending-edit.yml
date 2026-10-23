@@ -1,7 +1,7 @@
 name: Pending order edit compatibility
 on:
   push:
-    branches: [feature/pending-order-edit, feature/pending-order-items]
+    branches: [feature/pending-order-edit, feature/pending-order-items, feature/custom-order-photo]
   workflow_dispatch:
 permissions:
   contents: read
@@ -32,12 +32,14 @@ jobs:
           PY
           mv supabase/migrations/202610230005_pending_order_edit.sql "$RUNNER_TEMP/pending-edit.sql"
           mv supabase/migrations/202610230006_pending_order_items.sql "$RUNNER_TEMP/pending-items.sql"
+          mv supabase/migrations/202610230007_custom_order_details.sql "$RUNNER_TEMP/custom-details.sql"
           supabase start -x studio,imgproxy,inbucket,realtime,storage-api,edge-runtime,logflare,vector,supavisor
           umask 077
           supabase status -o json > "$RUNNER_TEMP/local-status.json"
       - name: Verify before and after the optional SQL
         env:
           LOCAL_SUPABASE_STATUS_FILE: ${{ runner.temp }}/local-status.json
+          CUSTOM_DETAILS_SQL_FILE: ${{ runner.temp }}/custom-details.sql
           PENDING_ITEMS_SQL_FILE: ${{ runner.temp }}/pending-items.sql
           PENDING_EDIT_SQL_FILE: ${{ runner.temp }}/pending-edit.sql
         run: node scripts/check-pending-edit-supabase.mjs

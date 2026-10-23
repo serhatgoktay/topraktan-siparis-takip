@@ -22,7 +22,7 @@ const update=o=>({expected:pendingSnapshot(o),delivery:'2099-12-13',note:'Yeni n
 
 test('Yeni SQL yokken giris/siparis/urunler/raporlar calisir; istege bagli duzenleme kapalidir',async t=>{
  const {req}=await app(t,false);
- assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:false,pendingOrderItemsEditing:false});
+ assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:false,pendingOrderItemsEditing:false,customOrderDetails:false});
  assert.equal((await req('bahce','orders',body)).status,201);
  const order=(await req('bahce','orders')).data[0];assert.equal(order.items[0].quantity,10);
  const result=await req('bahce',`orders/${order.id}/edit-pending`,update(order));assert.equal(result.status,503);assert.match(result.data.error,/henüz etkinleştirilmemiş/);
@@ -33,7 +33,7 @@ test('Yeni SQL yokken giris/siparis/urunler/raporlar calisir; istege bagli duzen
 
 test('Onay oncesi duzenleme: ayni kalem/kimlik, eski-yeni gecmisi, sube siniri ve cakis engeleme',async t=>{
  const {f,req}=await app(t,true);
- assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:true,pendingOrderItemsEditing:false});
+ assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:true,pendingOrderItemsEditing:false,customOrderDetails:false});
  assert.equal((await req('bahce','orders',body)).status,201);
  const o=(await req('bahce','orders')).data[0],patch=update(o);
  assert.equal((await req('park',`orders/${o.id}/edit-pending`,patch)).status,404);

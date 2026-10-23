@@ -121,3 +121,13 @@ Testler: `node --test tests/pending-edit.test.js` sunucusuz Vercel işleyicisini
 Onay bekleyen siparişe katalog veya özel ürün eklenebilir. Çıkarılan kalem kaydetmeden önce geri alınabilir; siparişte en az bir ürün bulunmalıdır. Kalan kalemlerin kimlikleri ve ürün bilgileri korunur. Çıkarılan kalemlerin bilgileri dahil eski/yeni ürün listesi ve gerekçe mevcut işlem geçmişine kaydedilir. Yetkiler önceki düzenleme ile aynıdır; onaylanmış veya başka şubeye ait sipariş değiştirilemez.
 
 `tests/pending-items.test.js` eski SQL ile uyumluluğu, ekleme/çıkarma, miktar ve kişi sayısı doğrulamasını, yetkileri, eşzamanlı değişiklikleri ve hatada işlemin geri alınmasını kontrol eder. Tarayıcı kontrolü SQL yokken, yalnız miktar düzenleme açıkken ve ürün düzenleme açıkken çalışır.
+
+### Özel sipariş açıklaması ve referans fotoğrafı
+
+[202610230007_custom_order_details.sql](supabase/migrations/202610230007_custom_order_details.sql) ayrı ve tekrar çalıştırılabilir küçük güncellemedir; sonuç `OZEL_SIPARIS_GORSEL_HAZIR` olmalıdır. Yeni `order_custom_details` tablosu yalnız sipariş açıklaması ve bir referans fotoğrafı saklar. Mevcut tablolar, sipariş oluşturma/düzenleme işlevleri, roller ve onların RLS politikaları değişmez. SQL eksikken yeni alanlar kapalıdır; mevcut sipariş akışı sürer.
+
+Yeni siparişte en az bir özel ürün varsa açıklama, **Resim seç** ve **Kamerayla çek** alanları açılır. Açıklama isteğe bağlı, en fazla 2000 karakterdir; bir fotoğraf eklenebilir. Fotoğraf tarayıcıda en fazla 1600 piksele küçültülüp JPEG olarak sıkıştırılır; 20 MB kaynak dosya ve 450 KB kayıt sınırı bulunur. Fotoğraf önizlenebilir, kaldırılabilir veya değiştirilebilir. Kamera desteği mobil tarayıcıya bağlıdır; masaüstünde dosya seçimi açılabilir. HEIC dosyasını açamayan tarayıcıda JPG/PNG/WebP seçilmesi istenir. Yeni fotoğraf ve açıklama siparişle tek veritabanı işleminde kaydedilir; hata halinde kısmi sipariş oluşmaz.
+
+Sipariş ayrıntısında açıklama ve büyütülebilen fotoğraf görünür. Fotoğraf yalnız oturumla ve mevcut sipariş okuma yetkisiyle açılır; imalat operatörünün mevcut onay sonrası okuma kuralı korunur. Fotoğraflar sipariş listelerine veya rapor yüküne katılmaz. Ayrıntılar kayıttan sonra bu güncellemeyle düzenlenmez; mevcut sipariş ürün düzenlemesi referans ayrıntılarını korur. Doğrudan tablo yazımı kapalıdır.
+
+`node tests/custom-order.test.js` gerçek PostgreSQL/RLS üzerinde kayıt, fotoğraf yanıtı, şube ayrımı, üretim erişimi, anonim erişim reddi, geçersiz veri, tekrar kurulum ve eski SQL uyumluluğunu doğrular. `scripts/check-custom-order-browser.mjs` önizleme, galeri/kamera dosya girdileri, fotoğraf kaldırma, mobil taşma ve ayrıntı görüntüleme akışları için hazırlanmıştır. Gerçek telefon kamerasıyla çekim cihaz üzerinde kontrol edilmelidir.

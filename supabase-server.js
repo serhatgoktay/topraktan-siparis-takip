@@ -11,6 +11,7 @@ const files = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/catalog.js': ['catalog.js', 'text/javascript; charset=utf-8'],
+  '/custom-order.js': ['custom-order.js', 'text/javascript; charset=utf-8'],
   '/pending-edit.js': ['pending-edit.js', 'text/javascript; charset=utf-8'],
   '/dates.js': ['dates.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
@@ -95,6 +96,7 @@ export function createApp({
       if (data?.code === 'PGRST202' && (path.includes('resolve_login_username') || path.includes('admin_set_profile_v2'))) throw error('Kullanıcı adı güncellemesi eksik. Supabase kullanıcı adı SQL güncellemesini çalıştırın.', 503);
       if (data?.code === 'PT409') throw error(message, 409);
       if (data?.code === 'PGRST202' && path.includes('edit_pending_order')) throw error('Sipariş düzenleme henüz etkinleştirilmemiş.', 503);
+      if (data?.code === 'PGRST202' && /create_order_with_details|get_custom_order_details/.test(path)) throw error('Özel sipariş fotoğraf güncellemesi henüz etkinleştirilmemiş.',503);
       if (data?.code === '42703') throw error('Veritabanı güncellemesi eksik. Supabase SQL güncellemelerini kontrol edin.', 503);
       if (data?.code === 'PGRST202') throw error('Supabase kategori güncellemesi eksik. Kategori güncelleme SQL dosyasını çalıştırın.', 503);
       if (data?.code === '23505') throw error('Bu kayıt zaten mevcut.');
@@ -172,11 +174,12 @@ export function createApp({
         const file = files[path];
         if (!file || !['GET', 'HEAD'].includes(req.method)) return send({ error: 'Bulunamadı.' }, 404);
         res.setHeader('Content-Type', file[1]);
-        res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+        res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
         res.end(req.method === 'HEAD' ? undefined : readFileSync(new URL(`./public/${file[0]}`, import.meta.url)));
         return;
       }
       if (!['GET', 'POST'].includes(req.method)) return send({ error: 'Yöntem desteklenmiyor.' }, 405);
+      const bodyLimit=path==='/api/orders'?1000000:100000;
       let body = {};
       if (req.method === 'POST') {
         const origin = req.headers.origin;
@@ -185,10 +188,10 @@ export function createApp({
           // Vercel may supply an already parsed body instead of an unread stream.
           try { body = typeof req.body === 'string' || Buffer.isBuffer(req.body) ? JSON.parse(String(req.body)) : req.body; }
           catch { throw error('Geçersiz JSON.'); }
-          if (JSON.stringify(body).length > 100000) throw error('İstek çok büyük.', 413);
+          if (JSON.stringify(body).length > bodyLimit) throw error('İstek çok büyük.', 413);
         } else {
           let raw = '';
-          for await (const chunk of req) { raw += chunk; if (raw.length > 100000) throw error('İstek çok büyük.', 413); }
+          for await (const chunk of req) { raw += chunk; if (raw.length > bodyLimit) throw error('İstek çok büyük.', 413); }
           try { body = JSON.parse(raw || '{}'); } catch { throw error('Geçersiz JSON.'); }
         }
         if (!body || Array.isArray(body) || typeof body !== 'object') throw error('Geçersiz istek.');
@@ -233,7 +236,8 @@ export function createApp({
       if (path === '/api/capabilities' && req.method === 'GET') {
         const ready=await remote('/rest/v1/rpc/pending_order_editing_ready', {token,body:{},optional:true});
         const itemsReady=await remote('/rest/v1/rpc/pending_order_items_editing_ready',{token,body:{},optional:true});
-        return send({pendingOrderEditing:ready===true,pendingOrderItemsEditing:itemsReady===true});
+        const customReady=await remote('/rest/v1/rpc/custom_order_details_ready',{token,body:{},optional:true});
+        return send({pendingOrderEditing:ready===true,pendingOrderItemsEditing:itemsReady===true,customOrderDetails:customReady===true});
       }
       if (path === '/api/me' && req.method === 'GET') return send(user);
       if (path === '/api/reports/export' && req.method === 'GET') {
@@ -257,11 +261,22 @@ export function createApp({
       }
       if (path === '/api/orders' && req.method === 'GET') return send(await ordersFor(token));
       if (path === '/api/orders' && req.method === 'POST') {
-        const id = await remote('/rest/v1/rpc/create_order_v2', { token, body: {
+        const details=body.custom_details;
+        if(details && (typeof details!=='object'||Array.isArray(details)||typeof details.description!=='string'||details.description.length>2000||(details.photo!==null&&typeof details.photo!=='string')))throw error('Özel sipariş açıklamasını ve fotoğrafını kontrol edin.');
+        const id = await remote(details?'/rest/v1/rpc/create_order_with_details':'/rest/v1/rpc/create_order_v2', { token, body: {
           p_unit_id: ['admin', 'manager'].includes(user.role) ? unitNames.indexOf(body.unit) + 1 : user.unit_id,
           p_delivery: body.delivery, p_items: body.items, p_note: body.note || '',
+          ...(details?{p_description:details.description,p_photo:details.photo}:{}),
         } });
         return send({ id }, 201);
+      }
+      const customMatch=path.match(/^\/api\/orders\/(\d+)\/(custom-details|custom-photo)$/);
+      if(customMatch && req.method==='GET'){
+        const details=await remote('/rest/v1/rpc/get_custom_order_details',{token,body:{p_order_id:Number(customMatch[1])}});
+        if(customMatch[2]==='custom-details')return send(details?{description:details.description,hasPhoto:Boolean(details.photo)}:null);
+        if(!details?.photo)throw error('Fotoğraf bulunamadı.',404);
+        const photo=Buffer.from(details.photo.slice('data:image/jpeg;base64,'.length),'base64');
+        res.writeHead(200,{'Content-Type':'image/jpeg','Content-Length':photo.length,'Cache-Control':'no-store','Content-Disposition':'inline; filename="ozel-siparis.jpg"','Content-Security-Policy':"default-src 'none'; sandbox"});res.end(photo);return;
       }
       const editMatch=path.match(/^\/api\/orders\/(\d+)\/edit-pending$/);
       if(editMatch && req.method==='POST'){
