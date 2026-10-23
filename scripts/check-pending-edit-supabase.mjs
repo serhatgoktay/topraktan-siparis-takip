@@ -18,7 +18,7 @@ await new Promise(r=>server.listen(0,'127.0.0.1',r));const base=`http://127.0.0.
 async function req(who,path,body){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{...(cookies[who]?{Cookie:cookies[who]}:{}),'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json(),cookie:r.headers.getSetCookie().map(s=>s.split(';')[0]).join('; ')};}
 try{
  for(const name of accounts.keys()){const r=await req('', 'login',{username:name,password});assert.equal(r.status,200,JSON.stringify(r.data));cookies[name]=r.cookie;}
- assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:false,pendingOrderItemsEditing:false,customOrderDetails:false,customOrderItemDetails:false});
+ assert.deepEqual((await req('bahce','capabilities')).data,{pendingOrderEditing:false,pendingOrderItemsEditing:false,customOrderDetails:false,customOrderItemDetails:false,pendingOrderServings:false});
  const created=await req('bahce','orders',{delivery:'2099-12-12',items:[{name:'Test pasta',quantity:10,measure:'adet',category:'Pastalar',subcategory:'Cheesecake',servings:8}]});assert.equal(created.status,201,JSON.stringify(created.data));
  const id=created.data.id;const before=(await req('bahce','orders')).data.find(o=>o.id===id);
  assert.equal((await req('bahce','products')).status,200);assert.equal((await req('park','orders')).data.length,0);
@@ -60,5 +60,14 @@ try{
  assert.deepEqual((await req('park',`orders/${multiple.data.id}/item-details`)).data,{items:[],legacy:null});
  const multiImage=await fetch(base+`orders/${multiple.data.id}/custom-item-photo/${multipleDetails.items[1].id}`,{headers:{Cookie:cookies.bahce}});assert.equal(multiImage.status,200);assert.deepEqual(Buffer.from(await multiImage.arrayBuffer()),Buffer.from(photo.split(',')[1],'base64'));
  console.log('PASS: real Supabase independent per-item descriptions/photos for identical names and branch isolation');
+
+ const servingsOutput=postgres(readFileSync(process.env.SERVINGS_EDIT_SQL_FILE,'utf8'));assert.match(servingsOutput,/PASTA_BOYUTU_DUZENLEME_HAZIR/);
+ let servingsReady=false;for(let attempt=0;attempt<50;attempt++){servingsReady=(await req('bahce','capabilities')).data.pendingOrderServings===true;if(servingsReady)break;await new Promise(r=>setTimeout(r,200));}assert.equal(servingsReady,true);
+ const sized=await req('bahce','orders',{delivery:'2099-12-12',items:[{name:'Boyutu değişecek pasta',quantity:2,measure:'adet',category:'Pastalar',subcategory:'Cheesecake',servings:8}]});assert.equal(sized.status,201);
+ const sizedOrder=(await req('bahce','orders')).data.find(o=>o.id===sized.data.id);
+ const sizePatch={edit_servings:true,expected:pendingSnapshot(sizedOrder,true),delivery:sizedOrder.delivery,note:sizedOrder.note,reason:'12 kişilik istendi',items:[{id:sizedOrder.items[0].id,quantity:2,servings:12}]};
+ const sizeSaved=await req('bahce',`orders/${sizedOrder.id}/edit-pending`,sizePatch);assert.equal(sizeSaved.status,200,JSON.stringify(sizeSaved.data));assert.equal((await req('bahce',`orders/${sizedOrder.id}/edit-pending`,sizePatch)).status,409);
+ const sizeAfter=(await req('bahce','orders')).data.find(o=>o.id===sizedOrder.id);assert.equal(sizeAfter.items[0].servings,12);assert.equal(sizeAfter.items[0].id,sizedOrder.items[0].id);assert.equal(sizeAfter.items[0].quantity,2);assert.ok(sizeAfter.events.some(e=>e.note.includes('12 kişilik')));
+ console.log('PASS: real Supabase size-only edit, preserved identity/quantity, history and stale protection');
 
 }finally{await new Promise(r=>server.close(r));}

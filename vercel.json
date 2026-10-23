@@ -35,7 +35,8 @@
       "feature/order-revisions-production": false,
       "feature/pending-order-items": false,
       "feature/custom-order-photo": false,
-      "fix/custom-details-per-item": false
+      "fix/custom-details-per-item": false,
+      "feature/edit-cake-servings": false
     }
   }
 }

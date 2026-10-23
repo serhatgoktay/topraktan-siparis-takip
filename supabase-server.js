@@ -238,7 +238,8 @@ export function createApp({
         const itemsReady=await remote('/rest/v1/rpc/pending_order_items_editing_ready',{token,body:{},optional:true});
         const customReady=await remote('/rest/v1/rpc/custom_order_details_ready',{token,body:{},optional:true});
         const perItemReady=await remote('/rest/v1/rpc/custom_order_item_details_ready',{token,body:{},optional:true});
-        return send({customOrderItemDetails:perItemReady===true,pendingOrderEditing:ready===true,pendingOrderItemsEditing:itemsReady===true,customOrderDetails:customReady===true});
+        const servingsReady=await remote('/rest/v1/rpc/pending_order_servings_ready',{token,body:{},optional:true});
+        return send({pendingOrderServings:servingsReady===true,customOrderItemDetails:perItemReady===true,pendingOrderEditing:ready===true,pendingOrderItemsEditing:itemsReady===true,customOrderDetails:customReady===true});
       }
       if (path === '/api/me' && req.method === 'GET') return send(user);
       if (path === '/api/reports/export' && req.method === 'GET') {
@@ -298,7 +299,8 @@ export function createApp({
         if(current.status!=='pending') throw error('Sipariş artık onay beklemiyor. Listeyi yenileyin.',409);
         if(typeof body.delivery!=='string'||typeof body.note!=='string'||typeof body.reason!=='string'||(!Array.isArray(body.quantities)&&!Array.isArray(body.items))||!body.expected)throw error('Düzenleme bilgileri eksik.');
         const common={p_order_id:Number(editMatch[1]),p_expected:body.expected,p_delivery:body.delivery,p_note:body.note,p_reason:body.reason};
-        if(Array.isArray(body.items))await remote(body.items.some(i=>i?.custom_details!=null)?'/rest/v1/rpc/edit_pending_order_with_item_details':'/rest/v1/rpc/edit_pending_order_v2',{token,body:{...common,p_items:body.items}});
+        if(body.edit_servings===true&&!Array.isArray(body.items))throw error('Pasta boyutu için sipariş kalemleri gerekli.');
+        if(Array.isArray(body.items))await remote(body.edit_servings===true?(body.items.some(i=>i?.custom_details!=null)?'/rest/v1/rpc/edit_pending_order_servings_with_details':'/rest/v1/rpc/edit_pending_order_servings'):(body.items.some(i=>i?.custom_details!=null)?'/rest/v1/rpc/edit_pending_order_with_item_details':'/rest/v1/rpc/edit_pending_order_v2'),{token,body:{...common,p_items:body.items}});
         else await remote('/rest/v1/rpc/edit_pending_order',{token,body:{...common,p_quantities:body.quantities}});
         return send({ok:true});
       }

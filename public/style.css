@@ -16,3 +16,5 @@ progress.bar{border:0;appearance:none;height:8px;border-radius:5px;background:#f
 .item-row > [data-custom-order-fields]{grid-column:1 / -1;margin:8px 0;min-width:0}.item-row > .remove-item{grid-column:-2 / -1;grid-row:1}.custom-photo-link img{max-height:240px}[data-item-custom] .custom-description{margin:10px 0;font-size:.9rem}
 
 .custom-photo-link img{width:220px;max-width:100%}
+
+.pending-size{margin:10px 0;max-width:230px;min-width:140px}.pending-size label{font-size:11px}.pending-size select,.pending-size input{min-width:0;width:100%}

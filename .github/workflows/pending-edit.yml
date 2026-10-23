@@ -1,7 +1,7 @@
 name: Pending order edit compatibility
 on:
   push:
-    branches: [feature/pending-order-edit, feature/pending-order-items, feature/custom-order-photo, fix/custom-details-per-item]
+    branches: [feature/pending-order-edit, feature/pending-order-items, feature/custom-order-photo, fix/custom-details-per-item, feature/edit-cake-servings]
   workflow_dispatch:
 permissions:
   contents: read
@@ -34,12 +34,14 @@ jobs:
           mv supabase/migrations/202610230006_pending_order_items.sql "$RUNNER_TEMP/pending-items.sql"
           mv supabase/migrations/202610230007_custom_order_details.sql "$RUNNER_TEMP/custom-details.sql"
           mv supabase/migrations/202610230008_custom_details_per_item.sql "$RUNNER_TEMP/item-details.sql"
+          mv supabase/migrations/202610230009_edit_cake_servings.sql "$RUNNER_TEMP/servings-edit.sql"
           supabase start -x studio,imgproxy,inbucket,realtime,storage-api,edge-runtime,logflare,vector,supavisor
           umask 077
           supabase status -o json > "$RUNNER_TEMP/local-status.json"
       - name: Verify before and after the optional SQL
         env:
           LOCAL_SUPABASE_STATUS_FILE: ${{ runner.temp }}/local-status.json
+          SERVINGS_EDIT_SQL_FILE: ${{ runner.temp }}/servings-edit.sql
           ITEM_DETAILS_SQL_FILE: ${{ runner.temp }}/item-details.sql
           CUSTOM_DETAILS_SQL_FILE: ${{ runner.temp }}/custom-details.sql
           PENDING_ITEMS_SQL_FILE: ${{ runner.temp }}/pending-items.sql
